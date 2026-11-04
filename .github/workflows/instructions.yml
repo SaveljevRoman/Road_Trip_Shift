@@ -1,0 +1,17 @@
+name: Repository checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check synchronized AGENTS.md and CLAUDE.md
+        shell: pwsh
+        run: ./scripts/Check-Instructions.ps1
+      - name: Check public files, distribution and history
+        shell: pwsh
+        run: ./scripts/Check-PublicFiles.ps1 -History

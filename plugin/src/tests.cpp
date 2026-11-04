@@ -1,0 +1,104 @@
+#include "kickdown.h"
+#include "cruise_guard.h"
+#include <cassert>
+#include <cstdio>
+#include <initializer_list>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <unordered_map>
+int main(int argc,char **argv) {
+    using namespace roadtrip;
+    for(const char *id : {"ford.f150_23","ford.bronco_24","ford.victoria_06","ford.mustang_67"}) assert(ford(id));
+    for(const char *id : {"vehicle.ford.f150_23","vehicle.ford.bronco_24","vehicle.ford.victoria_06","vehicle.ford.mustang_67"}) assert(ford(id));
+    assert(!ford("kenworth.t680")); assert(!ford("ford.modcar")); assert(!ford(nullptr));
+    for(const char *id : {"vehicle.kenworth.t680","vehicle.ford.modcar","vehicle.vehicle.ford.f150_23","vehicle.ford.f150_23.extra","prefix.ford.f150_23","vehicle.",""}) assert(!ford(id));
+    Kickdown k;
+    assert(!k.update(100,true,true,300));
+    assert(!k.update(500,true,true,300)); // hold is not a double tap
+    assert(!k.update(501,false,true,300));
+    assert(!k.update(510,true,true,300));
+    assert(!k.update(550,false,true,300));
+    assert(k.update(610,true,true,300));
+    assert(k.update(2000,true,true,300)); // kickdown lasts while held
+    assert(!k.update(2001,false,true,300));
+    assert(!k.update(2010,true,true,300)); // first press after kickdown release is ordinary
+    assert(!k.update(2020,false,true,300));
+    assert(k.update(2050,true,true,300));
+    assert(!k.update(2060,true,false,300)); // pause/focus loss cancels
+    assert(!k.update(2070,true,true,300)); // held during resume is blocked until release
+    assert(!k.update(2080,false,true,300));
+    assert(!k.update(2090,true,true,300));
+    assert(!k.update(2100,false,true,300));
+    assert(k.update(2150,true,true,300));
+    k.cancel();
+    assert(!k.update(3000,true,true,300));
+    assert(!k.update(3010,false,true,300));
+    assert(!k.update(3301,true,true,300)); // outside double-tap window
+    for(float m : {0.0f,10.0f,3.0f,high_power,7.5f}) {
+        assert(mode(m,true,false,high_power)==m);
+        assert(mode(m,true,true,high_power)==high_power);
+        assert(mode(m,false,true,high_power)==m);
+        assert(mode(m,true,false,high_power)==m); // restoration is immediate, with no saved stale setting
+    }
+    // A user-selected High Power setting is not evidence of plugin kickdown.
+    assert(!std::strcmp(mode_source(true,false),"configured"));
+    assert(!mode_override(high_power,true,false,high_power));
+    assert(!std::strcmp(mode_source(true,true),"kickdown"));
+    assert(!mode_override(high_power,true,true,high_power)); // request exists, value was already High Power
+    assert(mode_override(10,true,true,high_power));
+    assert(!mode_override(10,false,true,high_power));
+    assert(!std::strcmp(mode_name(high_power),"high_power"));
+    assert(!std::strcmp(mode_name(10),"economy"));
+    assert(!std::strcmp(mode_name(3),"normal"));
+    assert(!std::strcmp(mode_name(0),"off"));
+    CruiseSample s;s.eligible=true;s.gear=9;s.speed=s.target=31;s.throttle=0.3f;
+    CruiseGuard guard;
+    auto step=[&](uint64_t t,int g,float v,float gas){s.gear=g;s.speed=v;s.throttle=gas;guard.update(t,s);};
+    step(100,9,31,0.3f);step(300,10,31,0.3f);
+    step(500,10,30.5f,0.9f);step(700,0,30.3f,0.4f);step(900,9,30,0.3f);
+    assert(guard.cap==9); // neutral during a real shift does not erase the trial
+    assert(guard_choice(10,guard.cap,true,false)==9);
+    assert(guard_choice(7,guard.cap,true,false)==7); // downshifts stay available
+    assert(guard_choice(0,guard.cap,true,false)==0);
+    assert(guard_choice(-1,guard.cap,true,false)==-1);
+    assert(guard_choice(10,guard.cap,true,true)==10); // explicit kickdown is unaffected
+    assert(guard_choice(10,guard.cap,false,false)==10);
+    for(uint64_t t=1100;t<=11900;t+=200)step(t,9,31,0.4f);
+    assert(guard.cap==0); // after minimum hold plus 3 seconds at target with lower load
+    for(float target:{12.0f,25.0f,40.0f}) {
+        s.target=target;s.pedal=s.brake=0;s.kickdown=false;guard.reset();
+        step(100,4,target,0.3f);step(300,5,target,0.3f);
+        step(500,5,target-0.8f,1);step(700,4,target-1,0.3f);assert(guard.cap==4);
+        s.pedal=0.5f;step(900,4,target,0.3f);assert(guard.cap==0);s.pedal=0;
+    }
+    s.target=31;guard.reset();step(100,9,31,0.2f);step(300,10,31,0.2f);step(500,9,30,0.2f);
+    assert(guard.cap==0); // slow traffic/coasting, without high load, is not a failed power upshift
+    guard.reset();step(100,10,31,1);s.brake=0.2f;step(300,9,29,0);assert(guard.cap==0);s.brake=0;
+    guard.reset();step(100,10,31,1);s.kickdown=true;step(300,9,29,1);assert(guard.cap==0);s.kickdown=false;
+    guard.reset();step(100,10,31,1);s.target=28;step(300,9,29,1);assert(guard.cap==0);
+    std::puts("PASS: cruise failed-upshift hold, release hysteresis, speed independence, braking/manual/kickdown bypass.");
+    std::puts("PASS: vehicle scope, single/double/held/released input, cancellation, timeout, mode restoration.");
+    if(argc==2) {
+        // Optional offline detector replay, not a simulation of changed vehicle physics.
+        std::ifstream f(argv[1]);assert(f);std::string line;
+        auto split=[](const std::string &l){std::vector<std::string> v;std::stringstream ss(l);std::string x;while(std::getline(ss,x,','))v.push_back(x);return v;};
+        std::getline(f,line);auto fields=split(line);std::unordered_map<std::string,size_t> col;
+        for(size_t i=0;i<fields.size();++i)col[fields[i]]=i;
+        CruiseGuard replay;float previous_mode=-1;unsigned holds=0;
+        while(std::getline(f,line)) {
+            auto values=split(line);if(values.size()<fields.size())continue;
+            auto n=[&](const char *key){return std::stod(values[col.at(key)]);};
+            CruiseSample sample;sample.eligible=n("scope")!=0 && n("paused")==0;
+            sample.kickdown=n("kickdown")!=0;sample.pedal=(float)n("input_throttle");
+            sample.speed=(float)n("speed_kmh")/3.6f;sample.target=(float)n("cruise_kmh")/3.6f;
+            sample.throttle=(float)n("effective_throttle");sample.gear=(int)n("gear");
+            if(col.count("effective_brake"))sample.brake=(float)n("effective_brake");
+            float selected=(float)n("mode_config");if(selected!=previous_mode){replay.reset("configured_mode_changed");previous_mode=selected;}
+            int old=replay.cap;replay.update((uint64_t)n("tick_ms"),sample);
+            if(old!=replay.cap) {std::printf("REPLAY t=%.0f cap=%d reason=%s speed=%.2f target=%.2f\n",n("tick_ms"),replay.cap,replay.reason,sample.speed*3.6f,sample.target*3.6f);if(replay.cap)++holds;}
+        }
+        std::printf("REPLAY: %u hold activations; braking unavailable in older traces must be checked in a new drive.\n",holds);
+    }
+}

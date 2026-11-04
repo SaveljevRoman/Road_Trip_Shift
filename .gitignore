@@ -1,0 +1,43 @@
+# Local game data and historical SII prototype outputs
+/stock/
+/package/
+/dist/
+/tools/
+/build-report.json
+/diagnostics/
+/diagnostics-watch.*
+
+# Research downloads, disassembly and toolchains
+/research/*
+
+# Private working material and generated build staging
+/.local/
+/.build/
+
+# Build products, installations, test-host logs and backups
+/plugin/dist/
+/plugin/backups/
+/plugin/road_trip_shift/
+/plugin/installation.json
+*.exe
+*.dll
+*.zip
+*.scs
+*.log
+*.csv
+*.pid
+*.obj
+*.o
+*.pdb
+*.tmp
+
+# Deliberately published, verified distribution files
+!/release/road_trip_shift.dll
+!/release/road_trip_shift_*_win64.zip
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
