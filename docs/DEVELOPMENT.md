@@ -4,15 +4,15 @@
 
 ## Scope and hooks
 
-The official SCS SDK 1.16 supplies vehicle identity, input and telemetry, but has no documented command for replacing adaptive transmission decisions per shift. The DLL therefore uses guarded native hooks for one exact ATS 1.62.1.1 x64 executable. It never patches the file on disk or writes `g_adaptive_shift` storage.
+The official SCS SDK 1.16 supplies vehicle identity, input and telemetry, but has no documented command for replacing adaptive transmission decisions per shift. Native hooks are tested on ATS 1.62.1.1 x64. There is no version or executable hash whitelist, and the EXE on disk is unchanged.
 
-Every site is verified before transactional installation; failures roll back and shutdown restores patched instructions. Unknown executables or already modified sites are refused. Stubs stay allocated after shutdown, because another game thread may still be returning through one. An SDK reinitialization starts with fresh bookkeeping and stubs, and refuses installation while any earlier patch remains unrestored. The 20 sites consist of:
+`native_scan.h` resolves 20 hook sites from the 13 instruction signatures in `native_signatures.h`. Relative call, branch and RIP-relative data displacements are wildcards, allowing code, reader/chooser functions and configuration data to move independently. The reader and adaptive-mode variable are decoded from the matched instructions; no fixed game RVAs are compiled into the DLL.
 
-- Seven adaptive comparisons of the cruise/adaptive-block byte at `actor+0x204`; register-preserving stubs bypass the block only within supported active vehicle scope.
-- Eleven mode-reader calls; while kickdown is active they return temporary High Power (`1.6667`) instead of the selected value. UI/serialization readers are untouched.
-- Two `int(void *self)` gear-chooser calls at RVAs `0x9569A9` and `0x9569DB`, targeting `0x956FA0`; they may cap a repeated failed positive upshift. Stock downshifts, reverse, neutral and kickdown pass through.
+Every site is verified before transactional installation; failures roll back and shutdown restores patched instructions. Missing/ambiguous instruction patterns or already modified sites are refused. Stubs stay allocated after shutdown, because another game thread may still be returning through one. An SDK reinitialization starts with fresh bookkeeping and stubs, and refuses installation while any earlier patch remains unrestored.
 
-The supported SHA-256 and individual RVAs live in `plugin/src/road_trip_shift.cpp`. A changed game build requires renewed investigation of all instructions and calling conventions, not just a new hash.
+The sites consist of seven cruise/adaptive comparisons, eleven mode-reader calls and two automatic gear-chooser calls. All reader calls must agree on their target and configuration variable; both chooser calls must agree on their target. Only unique matches in readable executable image sections are used. Missing, ambiguous, overlapping or inconsistent matches leave hooks disabled, before any patch is applied. This protects against writing into unrelated memory without imposing a game-version whitelist.
+
+Hook installation is transactional and shutdown restores patched instructions. Mode-reader hooks return temporary High Power only during plugin kickdown; UI, serialization and stored `g_adaptive_shift` remain unchanged. Chooser hooks may cap a repeated failed positive upshift, while stock downshifts, reverse, neutral and kickdown pass through. Future changes to gearbox instructions or object layout can require plugin changes; signature relocation tests do not prove compatibility with untested game builds.
 
 ## Input and setting provenance
 
@@ -44,7 +44,7 @@ If deletion or a write fails, disk logging stops instead of exceeding the reserv
 
 Retention tests cover quota bounds using actual file lengths during writes, event-only and mixed traffic, oldest legacy removal, independent CSV headers, latest samples, name collision avoidance, unrelated files and failed deletion/recovery. Native tests also check that disabling diagnostics leaves mode shadow/restoration functional and does not overwrite status.
 
-Automated checks cover input timing/cancellation/restoration; all supported IDs and excluded vehicles; mode provenance; failed-upshift detection and release at several target speeds; manual/brake/kickdown bypass; all 20 current instruction sites; unsupported-host rejection; execution of the three comparison-stub variants; chooser bypasses; patch restoration, diagnostic disable and SDK/log lifecycle in isolated memory.
+Automated checks cover input timing/cancellation/restoration; all supported IDs and excluded vehicles; mode provenance; failed-upshift detection and release at several target speeds; manual/brake/kickdown bypass; all 20 current instruction sites; relocated signature resolution, changed unrelated bytes, missing/ambiguous patterns and inconsistent targets; execution of the three comparison-stub variants; chooser bypasses; patch restoration, diagnostic disable and SDK/log lifecycle in isolated memory.
 
 Base 0.2.2 behavior was exercised in real driving. The 0.3.0 detector recognized failed-upshift episodes in a local earlier trace, but replay is not a simulation of the corrected vehicle response. **The SDK accelerator input and 0.3.0 cruise hold still need a new driving test.** Hook initialization and passing harnesses are separate from confirming road behavior. No custom Crown Victoria calibration is applied; stock definitions alone do not establish real-world shift behavior.
 

@@ -14,7 +14,60 @@ static scs_result_t SCSAPIFUNC fake_channel(const char *name,scs_u32_t,scs_value
 static float fake_reader(void *p) {return *(float*)p;}
 static int fake_chooser(void *p) {return *(int*)p;}
 
+
+static unsigned char *signature_fixture(uint32_t shift) {
+    auto memory=(unsigned char*)VirtualAlloc(nullptr,0x20000,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(memory);
+    auto dos=(IMAGE_DOS_HEADER*)memory;dos->e_magic=IMAGE_DOS_SIGNATURE;dos->e_lfanew=0x100;
+    auto nt=(IMAGE_NT_HEADERS64*)(memory+0x100);nt->Signature=IMAGE_NT_SIGNATURE;
+    nt->FileHeader.Machine=IMAGE_FILE_MACHINE_AMD64;nt->FileHeader.NumberOfSections=1;
+    nt->FileHeader.SizeOfOptionalHeader=sizeof(IMAGE_OPTIONAL_HEADER64);
+    nt->OptionalHeader.Magic=IMAGE_NT_OPTIONAL_HDR64_MAGIC;nt->OptionalHeader.SizeOfImage=0x20000;
+    auto section=IMAGE_FIRST_SECTION(nt);section->VirtualAddress=0x1000+shift;
+    section->Misc.VirtualSize=0x4000;section->Characteristics=IMAGE_SCN_MEM_EXECUTE|IMAGE_SCN_MEM_READ;
+    auto put_relative=[&](uint32_t rva,unsigned offset,unsigned length,uint32_t target) {
+        int32_t relative=(int32_t)target-(int32_t)(rva+length);memcpy(memory+rva+offset,&relative,4);
+    };
+    for(unsigned i=0;i<13;i++) {
+        const auto &sig=i<11?roadtrip::read_signatures[i]:roadtrip::choice_signatures[i-11];
+        roadtrip::InstructionPattern pattern;assert(pattern.parse(sig.pattern));
+        uint32_t at=section->VirtualAddress+i*0x100;
+        for(unsigned n=0;n<pattern.length;n++)memory[at+n]=pattern.fixed[n]?pattern.bytes[n]:(unsigned char)(17+i);
+        put_relative(at+sig.call_offset,1,5,section->VirtualAddress+(i<11?0x3000+(shift?0x70:0):0x3100+(shift?0xB0:0)));
+        if(i<11)put_relative(at,3,7,0x10000+(shift?0x1900:0));
+    }
+    return memory;
+}
+static void test_signature_resolution() {
+    assert(!validate_sites(0));
+    auto first=signature_fixture(0);auto shifted=signature_fixture(0x5000);
+    roadtrip::NativeSites a,b;
+    assert(roadtrip::resolve_native_sites((uintptr_t)first,a));
+    assert(roadtrip::resolve_native_sites((uintptr_t)shifted,b));
+    assert(a.reader+0x5070==b.reader && a.chooser+0x50B0==b.chooser && a.variable+0x1900==b.variable);
+    for(unsigned i=0;i<11;i++)assert(a.reads[i]+0x5000==b.reads[i]);
+    for(unsigned i=0;i<7;i++)assert(a.compares[i]+0x5000==b.compares[i]);
+    for(unsigned i=0;i<2;i++)assert(a.choices[i]+0x5000==b.choices[i]);
+    first[0x40]^=0x7F; // unrelated bytes do not affect compatibility
+    assert(roadtrip::resolve_native_sites((uintptr_t)first,a));
+    unsigned char saved=first[0x1000];first[0x1000]=0x90;
+    assert(!roadtrip::resolve_native_sites((uintptr_t)first,b));first[0x1000]=saved;
+    roadtrip::InstructionPattern pattern;assert(pattern.parse(roadtrip::read_signatures[0].pattern));
+    memcpy(first+0x4800,first+0x1000,pattern.length);
+    assert(!roadtrip::resolve_native_sites((uintptr_t)first,b)); // ambiguous match
+    memset(first+0x4800,0,pattern.length);
+    int32_t relative;memcpy(&relative,first+a.reads[0]+1,4);int32_t altered=relative+0x40;
+    memcpy(first+a.reads[0]+1,&altered,4);assert(!roadtrip::resolve_native_sites((uintptr_t)first,b));
+    memcpy(first+a.reads[0]+1,&relative,4);
+    DWORD old=0;assert(VirtualProtect(first+0x1000,4096,PAGE_NOACCESS,&old));
+    assert(!roadtrip::resolve_native_sites((uintptr_t)first,b));
+    DWORD ignored=0;assert(VirtualProtect(first+0x1000,4096,old,&ignored));
+    assert(roadtrip::resolve_native_sites((uintptr_t)first,b));
+    VirtualFree(first,0,MEM_RELEASE);VirtualFree(shifted,0,MEM_RELEASE);
+    std::puts("PASS: all 20 sites relocate with code/data/functions; no hash restriction; missing/ambiguous/inconsistent/unreadable patterns refuse safely.");
+}
+
 int wmain(int argc,wchar_t **argv) {
+    test_signature_resolution();
     assert(argc==1 || argc==2);
     if(argc==2) {
         // Map PE sections as resources: no game code, imports or entrypoint run.
@@ -28,8 +81,8 @@ int wmain(int argc,wchar_t **argv) {
     scs_telemetry_init_params_v100_t init{};init.common.game_id="ats";init.common.log=fake_log;
     init.register_for_event=fake_event;init.register_for_channel=fake_channel;
     assert(scs_telemetry_init(SCS_TELEMETRY_VERSION_CURRENT,&init)==SCS_RESULT_ok);
-    assert(!patched && applied==0); // the test host's EXE is not on the whitelist
-    std::puts("PASS: unsupported host rejected without applying hooks.");
+    assert(!patched && applied==0); // this host has no gearbox instruction patterns
+    std::puts("PASS: host without gearbox instruction patterns leaves hooks disabled.");
     patch_count=20;applied=0;assert(!install_hooks() && patch_count==0); // SDK reinit after a clean shutdown
     patch_count=5;applied=1;assert(!install_hooks() && patch_count==5 && applied==1); // never stack on live patches
     patch_count=0;applied=0;

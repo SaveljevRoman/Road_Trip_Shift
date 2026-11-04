@@ -7,7 +7,7 @@
 - Windows x64 and PowerShell 7 (`pwsh`).
 - MinGW-w64 `g++` with C++17. The pinned setup uses [w64devkit 2.11.0](https://github.com/skeeto/w64devkit/releases/tag/v2.11.0).
 - SCS SDK 1.16 headers are included under `third_party/scs_sdk/include/`.
-- A local supported ATS EXE is needed for full native-image verification. Game/DLC files are not distributed.
+- A local ATS EXE is needed for full native-image verification. Game/DLC files are not distributed.
 
 Run commands from the repository root. Replace `path_to_compiler`, `path_to_file` and `path_to_game` with your own locations.
 
@@ -53,11 +53,11 @@ git diff --stat
 
 ## Verification
 
-The build checks input/mode restoration, cruise-guard logic, SDK vehicle scope and provenance, unsupported-host rejection, native condition/chooser execution, patch restoration and diagnostic disable in isolated memory, plus bounded log retention on a local file fixture. With `-GameExe`, it also checks the exact EXE hash and all 20 instruction sites. These checks do not prove driving behavior.
+The build checks input/mode restoration, cruise-guard logic, SDK vehicle scope and provenance, instruction-pattern resolution, native condition/chooser execution, patch restoration and diagnostic disable in isolated memory, plus bounded log retention on a local file fixture. With `-GameExe`, it resolves all 20 instruction sites in that EXE and records its hash for reference. Synthetic images verify shifted code/data/functions, changed unrelated bytes and missing or ambiguous patterns. These checks do not prove driving behavior.
 
 ```powershell
 pwsh -File ./scripts/Check-Instructions.ps1
 pwsh -File ./scripts/Check-PublicFiles.ps1 -History
 ```
 
-Optional local detector replay: `.build/tests/logic-tests.exe path_to_file/telemetry.csv`. This evaluates detection only, without simulating vehicle response to a different gear. Never commit telemetry or test output. Read [engineering notes](DEVELOPMENT.md) before changing hooks; after game updates, re-investigate every site instead of only replacing the hash.
+Optional local detector replay: `.build/tests/logic-tests.exe path_to_file/telemetry.csv`. This evaluates detection only, without simulating vehicle response to a different gear. Never commit telemetry or test output. Read [engineering notes](DEVELOPMENT.md) before changing hooks; the runtime resolves addresses automatically, and there is no version or game hash whitelist. Tested on ATS 1.62.1.1 (Windows x64).
