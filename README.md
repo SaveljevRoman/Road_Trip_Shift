@@ -4,7 +4,7 @@
 
 An experimental Windows x64 plugin for **American Truck Simulator — Road Trip: Ford**, addressing the automatic gearbox's different behavior under cruise control and manual acceleration.
 
-**Current build: 0.3.1 experimental**, for the exact ATS 1.62.1.1 executable listed below. Base kickdown/mode behavior was road-tested in 0.2.2. The new cruise gear-hunting protection passes automated checks but still needs validation in a new drive. This unofficial project is unaffiliated with SCS Software or Ford.
+**Current build: 0.3.1 experimental**, for the exact ATS 1.62.1.1 executable listed below. Base kickdown/mode behavior was road-tested in 0.2.2. The SDK accelerator input and cruise gear-hunting protection pass automated checks but still need validation in a new drive. This unofficial project is unaffiliated with SCS Software or Ford.
 
 ## The problem this addresses
 
@@ -27,11 +27,13 @@ Close ATS, then copy `road_trip_shift.dll` into `path_to_game/bin/win_x64/plugin
 | Input | Transmission mode |
 | --- | --- |
 | Cruise control | Selected in game settings |
-| Single accelerator press / W | Selected mode |
-| Double W, holding the second press | Temporary High Power |
-| Release W | Current selected mode restored |
+| Single accelerator press | Selected mode |
+| Double keyboard accelerator press, holding the second press | Temporary High Power |
+| Release the keyboard accelerator | Current selected mode restored |
 
-Keyboard acceleration uses the game's Smart Throttle. Analog double-press detection is available: the plugin changes mode but does not synthesize full analog throttle. The default double-tap interval is 300 ms. If High Power is already selected, a double tap is still logged as a kickdown request without changing the mode value.
+Kickdown follows the keyboard accelerator assigned in ATS. It reads the active profile's `controls.sii` and requires both that physical keyboard key and fresh SDK `truck.input.throttle` input. Gamepad buttons, triggers and pedals alone do not trigger plugin kickdown. There is no hardcoded W fallback. Keyboard acceleration uses the game's Smart Throttle. Startup, pause/resume, focus loss, timer restarts and vehicle changes require release before new presses. Cruise-generated effective throttle is not an input. The default double-tap interval is 300 ms. If High Power is already selected, the request is still logged separately without changing its value.
+
+Automatic binding discovery uses the latest profile path in the current `game.log.txt`, supports local/Steam profiles, redirected Documents and `-homedir`. Missing or unsupported bindings disable keyboard kickdown while cruise behavior stays available. See the installation guide for supported keys and the optional `controls_file` override.
 
 Cruise protection observes a failed higher gear under load and a subsequent stock downshift, then temporarily prevents another attempt at that higher gear. It preserves downshifts and resets on manual acceleration, kickdown or braking. It does not force top gear, guarantee an RPM or use a fixed road speed. Adaptive cruise still controls speed and braking around traffic.
 

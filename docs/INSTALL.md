@@ -10,7 +10,7 @@ Windows x64, ATS **1.62.1.1**, Road Trip: Ford and the exact supported `amtrucks
 28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7
 ```
 
-Other EXEs are refused, even if the displayed version matches. After an ATS update, use a newly verified plugin build. Multiplayer is untested. Base behavior was road-tested in 0.2.2; the new 0.3.1 cruise protection still needs driving validation.
+Other EXEs are refused, even if the displayed version matches. After an ATS update, use a newly verified plugin build. Multiplayer is untested. Base behavior was road-tested in 0.2.2; SDK accelerator input and the 0.3.1 cruise protection still need driving validation.
 
 ## Manual installation
 
@@ -30,7 +30,7 @@ path_to_game/
 
 The DLL alone is sufficient: missing INI values use built-in defaults. For an update, keep your existing INI. Retain the ZIP's `licenses` directory with any copy you redistribute. The plugin uses static compiler runtimes; no separately supplied compiler DLLs are required.
 
-4. Start ATS and accept its SDK confirmation. Select a supported Ford, an automatic gearbox and the desired adaptive transmission mode. Keyboard double-W acceleration uses the game's Smart Throttle.
+4. Start ATS and accept its SDK confirmation. Select a supported Ford, an automatic gearbox and the desired adaptive transmission mode. Double accelerator presses on a keyboard use the game's Smart Throttle. The plugin follows the accelerator action assigned in ATS automatically, without a separate key binding.
 
 There is no Mod Manager activation for this DLL. Never replace `amtrucks.exe`.
 
@@ -52,13 +52,19 @@ Edit `bin/win_x64/plugins/road_trip_shift/road_trip_shift.ini` while ATS is clos
 | --- | --- | --- |
 | `plugin / enabled` | `1` | `0` disables plugin behavior |
 | `input / double_tap_ms` | `300` | Maximum press interval in ms; clamped to 100–700 |
-| `input / analog_kickdown` | `1` | Enable analog pedal double-press detection |
+| `input / controls_file` | empty | Optional controls.sii override; empty enables automatic active-profile discovery |
 | `cruise / anti_hunt` | `1` | `0` disables new cruise gear-hunting protection for comparison |
 | `logging / enabled` | `1` | `0` disables diagnostic file/status writes and this plugin's SDK log messages |
 | `logging / max_total_mb` | `50` | Total event/CSV storage budget in MiB; clamped to 1–1024 |
 | `logging / sample_ms` | `200` | Telemetry interval in ms; clamped to 100–2000 |
 
-Double W selects temporary High Power while the second press is held; release returns to the current configured mode. Single W and cruise retain that mode. An analog double press changes mode without synthesizing full pedal input.
+Double-press the assigned keyboard accelerator and hold the second press for temporary High Power; releasing that key restores the configured mode even if a controller is holding throttle. A single keyboard press and cruise retain the selected mode. Gamepad buttons, triggers and pedals cannot activate plugin kickdown on their own. Startup, pause/resume, focus loss, timer restart and vehicle changes require a key release before another double press. No W fallback is used.
+
+The plugin reads `mix dforward` in the active profile's `controls.sii`, then confirms keyboard input with fresh SDK throttle. It supports letters, number-row keys, F1–F12, arrows, space, tab, backspace, Esc, separate Shift/Ctrl/Alt keys, navigation and common punctuation keys. Simple alternative bindings joined by OR are supported, including controller alternatives which are ignored. Complex expressions, modifiers combined with AND, unknown aliases, Enter and numpad bindings are refused rather than guessed. Windows virtual-key polling does not reliably distinguish the physical Enter/numpad variants. Unsupported bindings leave keyboard kickdown disabled. Controller software that emulates keyboard events is treated as keyboard input.
+
+The profile is identified from the latest profile path in the current game log, under the Windows Documents game directory or the game's `-homedir` override. `input / controls_file` can explicitly select `path_to_file/controls.sii` if discovery is unavailable; relative paths are resolved against that game-home directory. Bindings are rechecked about once per second and after activity/control changes. The game must save the changed assignment before it can be picked up. Neither the log nor controls file is modified.
+
+Existing INI files can be kept. The obsolete `input / analog_kickdown` setting is ignored: only the configured keyboard accelerator is now eligible for plugin kickdown. The interval remains `input / double_tap_ms`.
 
 ## Logs and troubleshooting
 
@@ -67,10 +73,12 @@ With logging enabled, the plugin creates `plugins/road_trip_shift/status.json` a
 The default **50 MiB** budget applies to the plugin's recognized `.log` and `.csv` files together, including earlier unsegmented sessions. Files rotate in parts of up to 5 MiB, with a new header in each CSV. On startup and rotation, the oldest completed files are removed to make space. The active part is closed before cleanup. Unrelated files, the game's own log and installation backups are outside this budget and are not deleted. If old files cannot be removed, disk logging stops rather than continuing to grow. `status.json` stays small because it is overwritten. Disabling logging preserves existing files and does not disable the gearbox features.
 
 - `hooks_ready` indicates hook installation; `vehicle_supported` indicates vehicle recognition. `reader_calls` and `shadow_reads` confirm actual mode-reader activity. These do not alone prove correct driving behavior.
+- `keyboard_binding_ready` and `input_sample_valid` in status show whether a binding and fresh accelerator sample are available. `KEYBOARD_BINDING source=controls_sii` records readiness without local paths.
+- CSV `input_down` replaces `w_down` and describes the SDK accelerator action; `THROTTLE DOWN/UP source=game_input` records its edges. Only keys from the keyboard accelerator binding are polled.
 - `CONFIG_MODE_CHANGED source=game_setting` records a game setting change, including profile loads. `KICKDOWN ON/OFF source=plugin` records a temporary plugin request. Already configured High Power can produce `value_changed=0`.
 - `CRUISE_GUARD source=cruise_load`, `cruise_guard_cap` and `cruise_guard_clamps` describe failed-upshift protection. `effective_brake` helps distinguish ACC braking from lack of power.
 - If hooks are refused, check the EXE hash and overlapping transmission plugins. Do not edit the whitelist to bypass checks.
-- Compare single W, double W/release and cruise at several speeds and loads. A selected top gear is not a success criterion; the car must still maintain speed. Adaptive cruise can slow down for traffic.
+- Compare a single accelerator press, double press/release and cruise at several speeds and loads. A selected top gear is not a success criterion; the car must still maintain speed. Adaptive cruise can slow down for traffic.
 
 ## Removal
 

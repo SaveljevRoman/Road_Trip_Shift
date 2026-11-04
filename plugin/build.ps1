@@ -55,9 +55,9 @@ try {
     if($LASTEXITCODE){throw 'Logging tests failed.'}
 } finally {Pop-Location}
 $dll=Join-Path $out 'road_trip_shift.dll'
-& $Compiler @common -shared -s -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti '-Wl,--no-insert-timestamp' ("-I$sdk") -o $dll (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -luser32 -lbcrypt
+& $Compiler @common -shared -s -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti '-Wl,--no-insert-timestamp' ("-I$sdk") -o $dll (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -luser32 -lbcrypt -lshell32 -lole32
 if($LASTEXITCODE){throw 'Plugin build failed.'}
-& $Compiler @common -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti -municode ("-I$sdk") -o (Join-Path $tests 'native-tests.exe') (Join-Path $PSScriptRoot 'src/native-tests.cpp') -luser32 -lbcrypt
+& $Compiler @common -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti -municode ("-I$sdk") -o (Join-Path $tests 'native-tests.exe') (Join-Path $PSScriptRoot 'src/native-tests.cpp') -luser32 -lbcrypt -lshell32 -lole32
 if($LASTEXITCODE){throw 'Native test build failed.'}
 # Resolve before changing working directory; relative input paths remain valid.
 if($GameExe){$GameExe=(Resolve-Path -LiteralPath $GameExe).Path}
@@ -110,9 +110,10 @@ $info=[ordered]@{
     dll_sha256=(Get-FileHash -LiteralPath $dll).Hash
     native_image_checked=[bool]$GameExe
     native_sites=20
-    checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance',
+    checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance','Configured keyboard accelerator, controller exclusion and fresh per-frame input',
+        'Full pause/resume, timer/vehicle/focus cancellation and release gating',
         'Unsupported host rejection','Native condition and chooser execution','Isolated patch restoration','Telemetry/log lifecycle','Bounded log rotation and retention')
-    driving_validation='0.2.2 base behavior road-tested; 0.3.0 cruise guard road validation pending'
+    driving_validation='0.2.2 base behavior road-tested; SDK accelerator input and 0.3.0 cruise guard road validation pending'
 }
 $manifest=Join-Path $package 'BUILD-INFO.json'
 $info | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $manifest -Encoding utf8NoBOM

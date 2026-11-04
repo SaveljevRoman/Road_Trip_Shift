@@ -31,6 +31,21 @@ struct Kickdown {
         return active;
     }
 };
+// Require both the configured physical keyboard key and the game's accelerator
+// action. Controller throttle alone never becomes a keyboard double press.
+struct AcceleratorInput {
+    Kickdown taps;
+    bool down=false;
+    AcceleratorInput() { cancel(); }
+    void cancel() { taps.cancel(true); down=false; }
+    bool update(uint64_t now,float value,bool keyboard_held,bool allowed,unsigned interval) {
+        if(!allowed || !std::isfinite(value) || value<0 || value>1 || (keyboard_held && value<0.15f)) {
+            cancel();return false;
+        }
+        down=keyboard_held;
+        return taps.update(now,down,true,interval);
+    }
+};
 inline float mode(float original, bool scoped, bool kick, float power) {
     return scoped && kick ? power : original;
 }

@@ -7,7 +7,10 @@ static void SCSAPIFUNC fake_log(scs_log_type_t,const char *message) {
     if(used+2<sizeof logged_events)std::snprintf(logged_events+used,sizeof logged_events-used,"%s\n",message);
 }
 static scs_result_t SCSAPIFUNC fake_event(scs_event_t,scs_telemetry_event_callback_t,scs_context_t) {return SCS_RESULT_ok;}
-static scs_result_t SCSAPIFUNC fake_channel(const char*,scs_u32_t,scs_value_type_t,scs_u32_t,scs_telemetry_channel_callback_t,scs_context_t) {return SCS_RESULT_ok;}
+static scs_result_t SCSAPIFUNC fake_channel(const char *name,scs_u32_t,scs_value_type_t,scs_u32_t flags,scs_telemetry_channel_callback_t,scs_context_t) {
+    if(!std::strcmp(name,"truck.input.throttle"))assert(flags==(SCS_TELEMETRY_CHANNEL_FLAG_each_frame|SCS_TELEMETRY_CHANNEL_FLAG_no_value));
+    return SCS_RESULT_ok;
+}
 static float fake_reader(void *p) {return *(float*)p;}
 static int fake_chooser(void *p) {return *(int*)p;}
 
@@ -43,10 +46,75 @@ int wmain(int argc,wchar_t **argv) {
         attrs[0].value.value_string.value=id;configuration(0,&conf,nullptr);assert(!known_ford);
         frame_start(0,nullptr,nullptr);assert(scope==0);
     }
-    observed_w=true;analog_down=true;activity(SCS_TELEMETRY_EVENT_started,nullptr,nullptr);
-    assert(keyboard.blocked && analog_pedal.blocked); // input held through resume is not a first press
-    observed_w=false;keyboard.cancel();analog_pedal.cancel();
-    std::puts("PASS: keyboard and analog input held across resume stay blocked until release.");
+    // Exercise the runtime profile/file loader using isolated test-owned files.
+    const auto saved_home=game_home;
+    game_home=L"keyboard_binding_fixture";controls_override.clear();selected_controls.clear();
+    CreateDirectoryW(game_home.c_str(),nullptr);
+    for(const wchar_t *sub:{L"\\profiles",L"\\profiles\\AB12",L"\\steam_profiles",L"\\steam_profiles\\CD34"})
+        CreateDirectoryW((game_home+sub).c_str(),nullptr);
+    auto write_input_file=[&](const wchar_t *relative,const char *text) {
+        FILE *f=_wfopen((game_home+relative).c_str(),L"wb");assert(f);std::fputs(text,f);std::fclose(f);
+    };
+    write_input_file(L"\\game.log.txt","/home/profiles/AB12/controls.sii\n");
+    write_input_file(L"\\profiles\\AB12\\controls.sii","mix dforward `keyboard.uarrow?0`\n");
+    reload_bindings=true;refresh_keyboard_binding(1000);
+    assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({0xe048}));
+    write_input_file(L"\\profiles\\AB12\\controls.sii","mix dforward `keyboard.a?0`\n");
+    assert(refresh_keyboard_binding(2000));assert(keyboard_binding.scans==std::vector<unsigned>({0x1e}));
+    write_input_file(L"\\game.log.txt","/home/profiles/AB12/controls.sii\n/steam/profiles/CD34/quick_replies.sii\n");
+    write_input_file(L"\\steam_profiles\\CD34\\controls.sii","mix dforward `keyboard.key1?0 | joy.b3?0`\n");
+    refresh_keyboard_binding(3000);assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({2}));
+    write_input_file(L"\\steam_profiles\\CD34\\controls.sii","mix dforward `joy.b3?0`\n");
+    refresh_keyboard_binding(4000);assert(!keyboard_binding.valid);
+    write_input_file(L"\\game.log.txt","no identifiable active profile\n");
+    refresh_keyboard_binding(5000);assert(!keyboard_binding.valid); // never retain stale profile selection
+    controls_override=L"profiles\\AB12\\controls.sii";
+    reload_bindings=true;refresh_keyboard_binding(5001);assert(keyboard_binding.valid);
+    game_home=saved_home;controls_override.clear();selected_controls.clear();reload_bindings=true;
+    std::puts("PASS: active local/Steam profile files, live key rebinding, controller-only binding refusal and explicit controls override.");
+    // Exercise actual SDK callback ordering, not just the tap state machine.
+    scope=1;foreground=true;brake=0;keyboard_binding.valid=true;
+    auto input=[&](ULONGLONG now,float value,int held=-1) {
+        scs_value_t v{};v.type=SCS_VALUE_TYPE_float;v.value_float.value=value;
+        channel("truck.input.throttle",SCS_U32_NIL,&v,nullptr);process_input(now,held<0?value>=0.15f:held!=0);
+    };
+    input(10000,0);input(10010,1);assert(!kick);input(10020,0);input(10050,1);assert(kick);
+    input(10060,0);assert(!kick);input(10070,1);assert(!kick);
+    input(10080,0);input(10100,1);assert(kick);
+    for(int event_case=0;event_case<4;event_case++) {
+        ULONGLONG start=11000+event_case*1000;
+        if(event_case==0) {
+            activity(SCS_TELEMETRY_EVENT_paused,nullptr,nullptr);
+            activity(SCS_TELEMETRY_EVENT_started,nullptr,nullptr);
+        } else if(event_case==1) {
+            scs_telemetry_frame_start_t timer{};timer.flags=SCS_TELEMETRY_FRAME_START_FLAG_timer_restart;
+            frame_start(0,&timer,nullptr);
+        } else if(event_case==2) {
+            attrs[0].value.value_string.value="vehicle.ford.f150_23";configuration(0,&conf,nullptr);
+        } else {foreground=false;input(start,0);foreground=true;cancel_input();}
+        scope=1;foreground=true;
+        input(start+100,1);assert(!kick);input(start+120,0);input(start+150,1);assert(!kick);
+        input(start+160,0);input(start+180,1);assert(kick);
+    }
+    // No cached throttle may arm a tap in a frame missing a fresh SDK sample.
+    pedal_sample=false;process_input(20400,false);assert(!kick);
+    input(20410,1);assert(!kick);input(20420,0);input(20430,1);assert(!kick);
+    input(20440,0);input(20450,1);assert(kick);
+    channel("truck.input.throttle",SCS_U32_NIL,nullptr,nullptr);process_input(20460,false);assert(!kick && !pedal_sample);
+    input(20470,1);assert(!kick);input(20480,0);input(20490,1);assert(!kick);
+    input(20500,0);input(20510,1);assert(kick);
+    brake=0.5f;input(20520,1);assert(!kick);brake=0;input(20530,1);assert(!kick);
+    input(20540,0);input(20550,1);assert(!kick);
+    // Effective cruise throttle is independent of the accelerator action.
+    cancel_input();effective=1;input(20600,0);input(20610,0);assert(!kick);
+    input(20620,1,0);input(20630,0,0);input(20640,1,0);assert(!kick); // controller double press
+    input(20650,1,1);assert(!kick);input(20660,1,0);input(20670,1,1);assert(kick);
+    input(20680,1,0);assert(!kick); // controller gas remains held after key release
+    keyboard_binding.valid=false;input(20690,1,1);assert(!kick);keyboard_binding.valid=true;
+    input(20700,1,1);assert(!kick);input(20710,0,0);input(20720,1,1);assert(!kick);
+    pedal_sample=false;pedal=1;frame_start(0,nullptr,nullptr);assert(!pedal_sample);
+    cancel_input();pedal=effective=0;
+    std::puts("PASS: mapped keyboard accelerator, controller exclusion, full pause/resume, timer/vehicle/focus cancellation, missing samples, brake and cruise exclusion.");
     patched=false;paused=true;
     float setting=10;original_reader=fake_reader;scope=1;kick=0;
     assert(read_mode(&setting)==10);kick=1;assert(read_mode(&setting)==roadtrip::high_power);
@@ -57,7 +125,7 @@ int wmain(int argc,wchar_t **argv) {
 
     logged_events[0]=0;adaptive_var=&setting;mode_seen=false;setting=10;scope=1;kick=0;
     refresh_config_mode();assert(strstr(logged_events,"CONFIG_MODE_INITIAL source=game_setting"));
-    set_kickdown(true,"W_double");assert(setting==10);
+    set_kickdown(true,"keyboard_accelerator_double");assert(setting==10);
     assert(strstr(logged_events,"KICKDOWN ON source=plugin"));
     assert(!strstr(logged_events,"CONFIG_MODE_CHANGED")); // a plugin request never masquerades as a user setting change
     setting=roadtrip::high_power;refresh_config_mode();
@@ -66,8 +134,8 @@ int wmain(int argc,wchar_t **argv) {
     set_kickdown(false,"input_release");assert(setting==roadtrip::high_power);
     assert(strstr(logged_events,"KICKDOWN OFF source=plugin"));
     logged_events[0]=0;
-    set_kickdown(true,"W_double");
-    assert(strstr(logged_events,"value_changed=0")); // configured High Power + double W: request with no mode-value change
+    set_kickdown(true,"keyboard_accelerator_double");
+    assert(strstr(logged_events,"value_changed=0")); // configured High Power + double accelerator press: request with no mode-value change
     assert(!strstr(logged_events,"CONFIG_MODE_CHANGED"));
     set_kickdown(false,"input_release");
     std::puts("PASS: configured High Power vs plugin kickdown have distinct event sources, including identical mode values.");
@@ -114,7 +182,7 @@ int wmain(int argc,wchar_t **argv) {
     disk_log.close();logging_enabled=false;logged_events[0]=0;
     FILE *status=_wfopen(status_path,L"wb");assert(status);std::fputs("sentinel",status);std::fclose(status);
     setting=10;adaptive_var=&setting;scope=1;kick=0;
-    set_kickdown(true,"W_double");assert(read_mode(&setting)==roadtrip::high_power);
+    set_kickdown(true,"keyboard_accelerator_double");assert(read_mode(&setting)==roadtrip::high_power);
     last_sample=0;unsigned count=sample_count;frame_end(0,nullptr,nullptr);assert(sample_count==count);
     set_kickdown(false,"input_release");assert(read_mode(&setting)==10);assert(logged_events[0]==0);
     status=_wfopen(status_path,L"rb");assert(status);char snapshot[16]={};std::fread(snapshot,1,sizeof snapshot-1,status);std::fclose(status);

@@ -1,6 +1,6 @@
 # Engineering notes
 
-[README](../README.md) · [Build](BUILD.md) · [Installation](INSTALL.md)
+[README](../README.md) В· [Build](BUILD.md) В· [Installation](INSTALL.md)
 
 ## Scope and hooks
 
@@ -16,7 +16,11 @@ The supported SHA-256 and individual RVAs live in `plugin/src/road_trip_shift.cp
 
 ## Input and setting provenance
 
-Vehicle scope accepts exactly the four Ford SDK IDs in `kickdown.h`, with or without one `vehicle.` prefix. Other identities fail closed. Keyboard W is polled for the foreground game only. Two distinct presses within 300 ms request kickdown while the second is held; holding a key is not a second press. Release, pause, focus loss and activity/vehicle changes cancel it; input held across such a change must be released before it counts as a press. W held in another window does not reset the cruise guard. Analog input uses 15% pressed and below 3% released; cruise-generated effective throttle is never treated as a physical pedal double tap.
+Vehicle scope accepts exactly the four Ford SDK IDs in `kickdown.h`, with or without one `vehicle.` prefix. Other identities fail closed. Keyboard accelerator bindings come from the active profile's `mix dforward` in `controls.sii`; no key is hardcoded. The latest canonical profile path in the current game-log tail selects a local or Steam profile. Documents redirection and `-homedir` are supported; an optional `input/controls_file` overrides discovery. The parser accepts supported keyboard keys and simple OR alternatives only, ignores controller-button alternatives and refuses ambiguous/unsupported bindings. Physical scan codes are translated using the foreground game thread's Windows keyboard layout before polling. Controller throttle by itself never qualifies.
+
+Fresh SDK `truck.input.throttle` confirms that a held keyboard accelerator is producing game input; `truck.effective.throttle` is never a kickdown source. A keyboard release restores mode even while a controller still holds gas. Missing configuration disables only keyboard kickdown; cruise remains available.
+
+The input channel requests `each_frame | no_value`. FRAME_START invalidates the previous sample; FRAME_END processes the fresh channel sample after all telemetry callbacks. An unavailable, invalid or missing sample cancels kickdown and blocks held input until release. Startup, pause/resume, focus loss, timer restart and vehicle/control changes do the same, including repeated cancellations without intervening frames. Two distinct physical keyboard presses within 300 ms request kickdown while the second is held. Unrelated keys and controller-only throttle cannot arm the detector. CSV `input_down` replaces `w_down`; `THROTTLE DOWN/UP source=game_input`, `origin=keyboard_accelerator_double` and `KEYBOARD_BINDING source=controls_sii ready=...` identify input without recording profile paths. The legacy INI `input/analog_kickdown` is ignored because analog kickdown is no longer supported.
 
 Keyboard full-gas behavior comes from native Smart Throttle. The plugin does not synthesize full analog throttle. A single press retains the selected mode.
 
@@ -42,7 +46,7 @@ Retention tests cover quota bounds using actual file lengths during writes, even
 
 Automated checks cover input timing/cancellation/restoration; all supported IDs and excluded vehicles; mode provenance; failed-upshift detection and release at several target speeds; manual/brake/kickdown bypass; all 20 current instruction sites; unsupported-host rejection; execution of the three comparison-stub variants; chooser bypasses; patch restoration, diagnostic disable and SDK/log lifecycle in isolated memory.
 
-Base 0.2.2 behavior was exercised in real driving. The 0.3.0 detector recognized failed-upshift episodes in a local earlier trace, but replay is not a simulation of the corrected vehicle response. **The 0.3.0 cruise hold still needs a new driving test.** Hook initialization and passing harnesses are separate from confirming road behavior. No custom Crown Victoria calibration is applied; stock definitions alone do not establish real-world shift behavior.
+Base 0.2.2 behavior was exercised in real driving. The 0.3.0 detector recognized failed-upshift episodes in a local earlier trace, but replay is not a simulation of the corrected vehicle response. **The SDK accelerator input and 0.3.0 cruise hold still need a new driving test.** Hook initialization and passing harnesses are separate from confirming road behavior. No custom Crown Victoria calibration is applied; stock definitions alone do not establish real-world shift behavior.
 
 The obsolete SII prototype globally reduced `rpm_range_power` and impaired acceleration/kickdown. It is not part of this distribution. Local traces, extracted game assets, disassembly and development toolchains are excluded from Git.
 

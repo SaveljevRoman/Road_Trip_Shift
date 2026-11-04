@@ -1,20 +1,22 @@
 {
   "version": "0.3.1",
   "channel": "experimental",
-  "built_at_utc": "2026-11-04T09:13:04Z",
+  "built_at_utc": "2026-11-04T17:39:47Z",
   "supported_game": "American Truck Simulator 1.62.1.1 Windows x64",
   "supported_exe_sha256": "28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7",
-  "dll_sha256": "A49C1B02399451156BB59124A6603215B76D6804F9D0C7C2FF2A512AD8D91C96",
+  "dll_sha256": "4532E9F47C3564F11FFC8B26E8874BF6FFA9BB7423AD7170259F558920F3B80A",
   "native_image_checked": true,
   "native_sites": 20,
   "checks": [
     "Input/mode and cruise-guard logic",
     "SDK vehicle scope and mode provenance",
+    "Configured keyboard accelerator, controller exclusion and fresh per-frame input",
+    "Full pause/resume, timer/vehicle/focus cancellation and release gating",
     "Unsupported host rejection",
     "Native condition and chooser execution",
     "Isolated patch restoration",
     "Telemetry/log lifecycle",
     "Bounded log rotation and retention"
   ],
-  "driving_validation": "0.2.2 base behavior road-tested; 0.3.0 cruise guard road validation pending"
+  "driving_validation": "0.2.2 base behavior road-tested; SDK accelerator input and 0.3.0 cruise guard road validation pending"
 }

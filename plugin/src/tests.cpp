@@ -1,4 +1,5 @@
 #include "kickdown.h"
+#include "keyboard_binding.h"
 #include "cruise_guard.h"
 #include <cassert>
 #include <cstdio>
@@ -36,6 +37,43 @@ int main(int argc,char **argv) {
     assert(!k.update(3000,true,true,300));
     assert(!k.update(3010,false,true,300));
     assert(!k.update(3301,true,true,300)); // outside double-tap window
+    AcceleratorInput action;
+    auto key=[&](uint64_t t,bool held,bool allowed=true){return action.update(t,held?1.0f:0.0f,held,allowed,300);};
+    assert(!key(4000,true)); // startup with gas held
+    assert(!key(4010,false));assert(!key(4020,true));assert(!key(4030,false));assert(key(4040,true));
+    for(int i=0;i<3;i++)action.cancel(); // repeated pause/resume/timer cancellation
+    assert(!key(4050,true));assert(!key(4060,false));assert(!key(4070,true));assert(!key(4080,false));assert(key(4090,true));
+    assert(!key(4100,true,false));assert(!key(4110,true));assert(!key(4120,false));assert(!key(4130,true));
+    assert(!action.update(4140,NAN,true,true,300));assert(!key(4150,true));
+    assert(!action.update(4160,-0.1f,true,true,300));assert(!action.update(4170,1.1f,true,true,300));
+    assert(!key(4180,false));assert(!key(4200,true));assert(!key(4210,false));assert(!key(4501,true));
+    action.cancel();
+    for(uint64_t t=5000;t<5400;t+=20)assert(!action.update(t,(t/20)%2?1.0f:0.0f,false,true,300)); // gamepad only
+    assert(!action.update(5400,1,true,true,300));assert(!action.update(5410,1,false,true,300));
+    assert(action.update(5420,1,true,true,300)); // keyboard presses still work while a controller holds gas
+    assert(!action.update(5430,1,false,true,300)); // key release restores mode even with controller gas held
+    assert(!action.update(5440,0,true,true,300)); // keyboard key that is not currently producing game gas
+    assert(!action.update(5450,1,true,true,300));assert(!key(5460,false));assert(!key(5470,true));
+    std::puts("PASS: keyboard-only accelerator, controller exclusion, key release, repeated cancellation, invalid input and timeout.");
+    auto binding=parse_keyboard_binding("mix dforward `keyboard.uarrow?0 | keyboard.a?0 | joy2.b5?0`\n");
+    assert(binding.valid && binding.scans==std::vector<unsigned>({0xe048,0x1e}));
+    assert(parse_keyboard_binding("mix dforward `keyboard.w?0`\r\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `joy.b1?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `unbound`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.a?0 & keyboard.lshift?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.a?0 |`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.unknown?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.numenter?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.w?0`\nmix dforward `keyboard.a?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward missing_backticks\n").valid);
+    assert(!parse_keyboard_binding("mix photofwd `keyboard.w?0`\n").valid);
+    auto profile=last_profile_controls("/home/steam_profiles/AB12/ffb_lut.sii\n/home/profiles/34CD/controls.sii\n");
+    assert(profile.id=="34CD" && !profile.steam);
+    profile=last_profile_controls("/home/profiles/AB12/controls.sii\n/steam/profiles/34CD/quick_replies.sii\n");
+    assert(profile.id=="34CD" && profile.steam);
+    assert(last_profile_controls("/home/profiles/../../controls.sii").id.empty());
+    assert(last_profile_controls("/home/profiles(backup)/AB12/controls.sii").id.empty());
+    std::puts("PASS: remapped keyboard bindings, controller alternatives, unsupported/ambiguous bindings, profile selection and traversal refusal.");
     for(float m : {0.0f,10.0f,3.0f,high_power,7.5f}) {
         assert(mode(m,true,false,high_power)==m);
         assert(mode(m,true,true,high_power)==high_power);
