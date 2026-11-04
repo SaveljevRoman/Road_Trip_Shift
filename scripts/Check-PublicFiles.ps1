@@ -83,7 +83,9 @@ try {
     }
 } finally {$zip.Dispose()}
 if($History) {
-    $objects=@(& git -C $root rev-list --objects main)
+    # Tag checkouts in CI have no local main branch.
+    $main=if(& git -C $root rev-parse -q --verify refs/heads/main){'main'}else{'origin/main'}
+    $objects=@(& git -C $root rev-list --objects $main)
     if($LASTEXITCODE){throw 'Cannot inspect main history.'}
     foreach($object in $objects) {
         $parts=$object -split ' ',2
