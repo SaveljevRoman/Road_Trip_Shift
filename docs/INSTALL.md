@@ -4,13 +4,7 @@ Version **0.3.1 experimental**. This guide is also included in the installation 
 
 ## Requirements
 
-Windows x64, ATS **1.62.1.1**, Road Trip: Ford and the exact supported `amtrucks.exe` SHA-256:
-
-```text
-28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7
-```
-
-Other EXEs are refused, even if the displayed version matches. After an ATS update, use a newly verified plugin build. Multiplayer is untested. Base behavior was road-tested in 0.2.2; the new 0.3.1 cruise protection still needs driving validation.
+Windows x64 and Road Trip: Ford. Tested on ATS **1.62.1.1**. Game addresses are found automatically from instruction signatures; there is no version or EXE hash whitelist. Other game builds have not been tested. Multiplayer is untested. Base behavior was road-tested in 0.2.2; the new 0.3.1 cruise protection still needs driving validation.
 
 ## Manual installation
 
@@ -42,7 +36,7 @@ From the extracted ZIP directory, with PowerShell 7:
 pwsh -File ./Install.ps1 -GameRoot 'path_to_game'
 ```
 
-The installer refuses a running game or an unsupported EXE, verifies the DLL hash, backs up any previous DLL and preserves the existing INI. Its `installation.json` file records installation details under `plugins/road_trip_shift/`, alongside backups. Profiles and other plugins are not changed.
+The installer refuses a running game, verifies the DLL hash, backs up any previous DLL and preserves the existing INI. Its `installation.json` file records installation details under `plugins/road_trip_shift/`, alongside backups. Profiles and other plugins are not changed.
 
 ## Settings
 
@@ -69,7 +63,7 @@ The default **50 MiB** budget applies to the plugin's recognized `.log` and `.cs
 - `hooks_ready` indicates hook installation; `vehicle_supported` indicates vehicle recognition. `reader_calls` and `shadow_reads` confirm actual mode-reader activity. These do not alone prove correct driving behavior.
 - `CONFIG_MODE_CHANGED source=game_setting` records a game setting change, including profile loads. `KICKDOWN ON/OFF source=plugin` records a temporary plugin request. Already configured High Power can produce `value_changed=0`.
 - `CRUISE_GUARD source=cruise_load`, `cruise_guard_cap` and `cruise_guard_clamps` describe failed-upshift protection. `effective_brake` helps distinguish ACC braking from lack of power.
-- If hooks are refused, check the EXE hash and overlapping transmission plugins. Do not edit the whitelist to bypass checks.
+- If hooks are not applied, check the log for missing or ambiguous instruction patterns and overlapping transmission plugins.
 - Compare single W, double W/release and cruise at several speeds and loads. A selected top gear is not a success criterion; the car must still maintain speed. Adaptive cruise can slow down for traffic.
 
 ## Removal

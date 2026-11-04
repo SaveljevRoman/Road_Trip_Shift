@@ -22,9 +22,8 @@ if(-not (Test-Path -LiteralPath $Compiler)){throw 'Compiler not found.'}
 if($GameExe -and -not (Test-Path -LiteralPath $GameExe)){throw 'GameExe not found.'}
 $source=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -Raw
 $version=[regex]::Match($source,'VERSION="([0-9.]+) experimental"').Groups[1].Value
-$supportedHash=[regex]::Match($source,'EXE_HASH="([A-F0-9]{64})"').Groups[1].Value
-if(-not $version -or -not $supportedHash){throw 'Cannot read source version or supported EXE hash.'}
-if($GameExe -and (Get-FileHash -LiteralPath $GameExe).Hash -ne $supportedHash){throw 'Unsupported game EXE hash.'}
+if(-not $version){throw 'Cannot read source version.'}
+$testedHash=if($GameExe){(Get-FileHash -LiteralPath $GameExe).Hash}else{$null}
 $sdk=Join-Path $root 'third_party/scs_sdk/include'
 if(-not (Test-Path -LiteralPath (Join-Path $sdk 'scssdk_telemetry.h'))){throw 'SCS SDK headers not found.'}
 $build=Join-Path $root '.build'
@@ -55,9 +54,9 @@ try {
     if($LASTEXITCODE){throw 'Logging tests failed.'}
 } finally {Pop-Location}
 $dll=Join-Path $out 'road_trip_shift.dll'
-& $Compiler @common -shared -s -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti '-Wl,--no-insert-timestamp' ("-I$sdk") -o $dll (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -luser32 -lbcrypt
+& $Compiler @common -shared -s -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti '-Wl,--no-insert-timestamp' ("-I$sdk") -o $dll (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -luser32
 if($LASTEXITCODE){throw 'Plugin build failed.'}
-& $Compiler @common -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti -municode ("-I$sdk") -o (Join-Path $tests 'native-tests.exe') (Join-Path $PSScriptRoot 'src/native-tests.cpp') -luser32 -lbcrypt
+& $Compiler @common -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti -municode ("-I$sdk") -o (Join-Path $tests 'native-tests.exe') (Join-Path $PSScriptRoot 'src/native-tests.cpp') -luser32
 if($LASTEXITCODE){throw 'Native test build failed.'}
 # Resolve before changing working directory; relative input paths remain valid.
 if($GameExe){$GameExe=(Resolve-Path -LiteralPath $GameExe).Path}
@@ -88,7 +87,7 @@ Close ATS, then copy the included bin folder into your game directory. Keep an e
 
 [Installation, compatibility, settings and removal](docs/INSTALL.md) · [Установка на русском](docs/INSTALL_RU.md)
 
-The new cruise protection still needs driving validation. Retain the licenses folder when redistributing this package. BUILD-INFO.json records the supported EXE and DLL hash.
+The new cruise protection still needs driving validation. Retain the licenses folder when redistributing this package. Tested on ATS 1.62.1.1 (Windows x64). BUILD-INFO.json records the tested EXE and DLL hash.
 "@ | Set-Content -LiteralPath (Join-Path $package 'README.md') -Encoding utf8NoBOM
 @"
 # Road Trip Shift $version — экспериментальная сборка
@@ -99,19 +98,21 @@ The new cruise protection still needs driving validation. Retain the licenses fo
 
 [Установка, совместимость, настройки и удаление](docs/INSTALL_RU.md) · [Установка на английском](docs/INSTALL.md)
 
-Новая защита круиза ещё требует проверки в поездке. При распространении сохраняйте папку licenses. BUILD-INFO.json содержит хеши поддерживаемого EXE и DLL.
+Новая защита круиза ещё требует проверки в поездке. При распространении сохраняйте папку licenses. Проверено на ATS 1.62.1.1 (Windows x64). BUILD-INFO.json содержит хеши проверенного EXE и DLL.
 "@ | Set-Content -LiteralPath (Join-Path $package 'README_RU.md') -Encoding utf8NoBOM
 $info=[ordered]@{
     version=$version
     channel='experimental'
     built_at_utc=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
-    supported_game='American Truck Simulator 1.62.1.1 Windows x64'
-    supported_exe_sha256=$supportedHash
+    tested_game='American Truck Simulator 1.62.1.1 Windows x64'
+    tested_exe_sha256=$testedHash
+    address_resolution='instruction_signatures'
+    version_hash_restriction=$false
     dll_sha256=(Get-FileHash -LiteralPath $dll).Hash
     native_image_checked=[bool]$GameExe
     native_sites=20
     checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance',
-        'Unsupported host rejection','Native condition and chooser execution','Isolated patch restoration','Telemetry/log lifecycle','Bounded log rotation and retention')
+        'Relocated signature resolution and missing/ambiguous pattern rejection','Native condition and chooser execution','Isolated patch restoration','Telemetry/log lifecycle','Bounded log rotation and retention')
     driving_validation='0.2.2 base behavior road-tested; 0.3.0 cruise guard road validation pending'
 }
 $manifest=Join-Path $package 'BUILD-INFO.json'

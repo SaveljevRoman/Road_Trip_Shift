@@ -7,7 +7,6 @@ if(-not (Test-Path -LiteralPath $exe)){throw 'ATS installation not found.'}
 $manifestPath=Join-Path $PSScriptRoot 'BUILD-INFO.json'
 if(-not (Test-Path -LiteralPath $manifestPath)){throw 'Run Install.ps1 from an extracted installation ZIP.'}
 $info=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if((Get-FileHash -LiteralPath $exe).Hash -ne $info.supported_exe_sha256){throw 'Unsupported game EXE hash. Use a verified build for your game version.'}
 $source=Join-Path $PSScriptRoot 'bin/win_x64/plugins/road_trip_shift.dll'
 if((Get-FileHash -LiteralPath $source).Hash -ne $info.dll_sha256){throw 'Package DLL hash mismatch.'}
 $destDir=Join-Path $GameRoot 'bin/win_x64/plugins'

@@ -4,7 +4,7 @@
 
 An experimental Windows x64 plugin for **American Truck Simulator — Road Trip: Ford**, addressing the automatic gearbox's different behavior under cruise control and manual acceleration.
 
-**Current build: 0.3.1 experimental**, for the exact ATS 1.62.1.1 executable listed below. Base kickdown/mode behavior was road-tested in 0.2.2. The new cruise gear-hunting protection passes automated checks but still needs validation in a new drive. This unofficial project is unaffiliated with SCS Software or Ford.
+**Current build: 0.3.1 experimental**, tested on ATS 1.62.1.1 (Windows x64). Base kickdown/mode behavior was road-tested in 0.2.2. The new cruise gear-hunting protection passes automated checks but still needs validation in a new drive. This unofficial project is unaffiliated with SCS Software or Ford.
 
 ## The problem this addresses
 
@@ -37,11 +37,10 @@ Cruise protection observes a failed higher gear under load and a subsequent stoc
 
 ## Compatibility
 
-- Windows x64; ATS **1.62.1.1**, exact `amtrucks.exe` SHA-256:
-  `28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7`
+- Windows x64; tested on ATS **1.62.1.1**.
 - SDK vehicle IDs: `ford.f150_23`, `ford.bronco_24`, `ford.victoria_06`, `ford.mustang_67`; the SDK's `vehicle.` prefix is accepted. These identifiers may differ from the DLC's model-year labels.
 - Intended for single-player. Multiplayer is untested.
-- Unsupported executables or conflicting modifications at the same code sites cause hook initialization to be refused. Updates require fresh verification; replacing only the hash is insufficient.
+- Game addresses are found automatically from instruction signatures, without a version or EXE hash whitelist. Compatibility with other game builds has not been tested.
 
 Changes affect process memory; the game EXE on disk is unchanged. Gear ratios, torque and RPM maps remain stock.
 
@@ -57,6 +56,7 @@ Event logs and CSV telemetry share a **50 MiB** default storage budget. Long ses
 | [Installation](docs/INSTALL.md) / [Установка](docs/INSTALL_RU.md) | Installation, settings, logs, updates and removal |
 | [Engineering notes](docs/DEVELOPMENT.md) | Hooks, cruise guard, telemetry and validation limits |
 | `plugin/src/road_trip_shift.cpp` | SDK entry points, telemetry, native hooks and logging |
+| `plugin/src/native_scan.h`, `plugin/src/native_signatures.h` | Locate gearbox code and data automatically |
 | `plugin/src/kickdown.h` | Input state machine, vehicle scope and temporary mode |
 | `plugin/src/cruise_guard.h` | Cruise gear-hunting protection |
 | `plugin/src/rolling_log.h` | Bounded diagnostic storage and rotation |

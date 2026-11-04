@@ -3,7 +3,6 @@
 // car_automatic_transmission. This narrower implementation retains stock maps.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <bcrypt.h>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -17,9 +16,9 @@
 #include "kickdown.h"
 #include "cruise_guard.h"
 #include "rolling_log.h"
+#include "native_scan.h"
 
 static const char *VERSION="0.3.1 experimental";
-static const char *EXE_HASH="28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7";
 static HMODULE module_handle;
 static uintptr_t base;
 static scs_log_t game_log;
@@ -111,41 +110,12 @@ static void init_paths() {
         disk_log.begin(logs,prefix,header,(size_t)log_quota_mb*1024*1024);
     }
 }
-static bool hash_exe(char out[65]) {
-    wchar_t path[MAX_PATH];GetModuleFileNameW(nullptr,path,MAX_PATH);
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
-    if(file==INVALID_HANDLE_VALUE)return false;
-    BCRYPT_ALG_HANDLE alg=nullptr;BCRYPT_HASH_HANDLE hash=nullptr;bool ok=false;
-    unsigned char buf[65536],digest[32];DWORD got=0;
-    if(BCryptOpenAlgorithmProvider(&alg,BCRYPT_SHA256_ALGORITHM,nullptr,0)>=0 &&
-       BCryptCreateHash(alg,&hash,nullptr,0,nullptr,0,0)>=0) {
-        ok=true;
-        for(;;) {if(!ReadFile(file,buf,sizeof buf,&got,nullptr)){ok=false;break;}if(!got)break;
-            if(BCryptHashData(hash,buf,got,0)<0){ok=false;break;}}
-        if(ok && BCryptFinishHash(hash,digest,32,0)<0)ok=false;
-        if(ok)for(int i=0;i<32;i++)snprintf(out+2*i,3,"%02X",digest[i]);
-    }
-    if(hash)BCryptDestroyHash(hash);
-    if(alg)BCryptCloseAlgorithmProvider(alg,0);
-    CloseHandle(file);return ok;
-}
-
 struct Patch {uint32_t rva;unsigned n;unsigned char old[8],replacement[8];bool live=false;};
 static Patch patches[32];static unsigned patch_count=0,applied=0;
 static unsigned char *thunks;static size_t thunk_used=0;
-static const uint32_t reads[]={0x623D76,0x623DBC,0x6245DE,0x624619,0x62463B,0x624AA3,0x624AD6,0x62501B,0x95669E,0x956989,0x95756E};
-static const uint32_t compares[]={0x623D91,0x6245F7,0x624654,0x624ABC,0x625036,0x9566B7,0x957587};
-static const uint32_t choices[]={0x9569A9,0x9569DB};
+static roadtrip::NativeSites native_sites;
 static bool validate_sites(uintptr_t image) {
-    for(auto r:reads) {auto s=(unsigned char*)(image+r);int32_t rel;memcpy(&rel,s+1,4);
-        if(s[0]!=0xE8 || (uintptr_t)(s+5)+rel!=image+0x1E2430){log("CONFLICT at cvar read RVA %X; no hooks",r);return false;}}
-    for(auto r:compares) {auto s=(unsigned char*)(image+r);
-        bool regular=s[0]==0x80 && (s[1]==0xB9||s[1]==0xB8) && !memcmp(s+2,"\x04\x02\0\0\0",5);
-        bool r14=r==0x957587 && !memcmp(s,"\x44\x38\xB1\x04\x02\0\0",7);
-        if(!regular&&!r14){log("CONFLICT at cruise compare RVA %X; no hooks",r);return false;}}
-    for(auto r:choices) {auto s=(unsigned char*)(image+r);int32_t rel;memcpy(&rel,s+1,4);
-        if(s[0]!=0xE8 || (uintptr_t)(s+5)+rel!=image+0x956FA0){log("CONFLICT at automatic chooser RVA %X; no hooks",r);return false;}}
-    return true;
+    return roadtrip::resolve_native_sites(image,native_sites);
 }
 static float read_mode(void *var) {
     ++reader_calls;
@@ -204,18 +174,18 @@ static bool restore() {
     return ok;
 }
 static bool install_hooks() {
-    char hash[65]={};if(!hash_exe(hash) || strcmp(hash,EXE_HASH)) {log("UNSUPPORTED EXE: sha256=%s; no hooks applied",hash);return false;}
-    base=(uintptr_t)GetModuleHandleW(nullptr);original_reader=(Reader)(base+0x1E2430);adaptive_var=(void*)(base+0x2DB1600);
-    original_chooser=(Chooser)(base+0x956FA0);
+    base=(uintptr_t)GetModuleHandleW(nullptr);
     // Only these two gearbox code regions read a shadow High Power value.
     // UI, config serialization and the stored g_adaptive_shift remain untouched.
-    if(!validate_sites(base))return false;
-    thunks=reserve_thunks(base+0x624000);if(!thunks){log("Cannot allocate nearby stubs; no hooks");return false;}
+    if(!validate_sites(base)) {log("Gearbox instruction patterns missing or ambiguous; no hooks applied");return false;}
+    original_reader=(Reader)(base+native_sites.reader);adaptive_var=(void*)(base+native_sites.variable);
+    original_chooser=(Chooser)(base+native_sites.chooser);
+    thunks=reserve_thunks(base+native_sites.reads[0]);if(!thunks){log("Cannot allocate nearby stubs; no hooks");return false;}
     void *reader_thunk=abs_jump((void*)&read_mode);
-    for(auto r:reads)if(!add_call(r,5,reader_thunk))return false;
-    for(auto r:compares)if(!add_call(r,7,compare_stub((unsigned char*)(base+r))))return false;
+    for(auto r:native_sites.reads)if(!add_call(r,5,reader_thunk))return false;
+    for(auto r:native_sites.compares)if(!add_call(r,7,compare_stub((unsigned char*)(base+r))))return false;
     void *chooser_thunk=abs_jump((void*)&choose_gear);
-    for(auto r:choices)if(!add_call(r,5,chooser_thunk))return false;
+    for(auto r:native_sites.choices)if(!add_call(r,5,chooser_thunk))return false;
     DWORD old;if(!VirtualProtect(thunks,4096,PAGE_EXECUTE_READ,&old))return false;
     FlushInstructionCache(GetCurrentProcess(),thunks,4096);
     HMODULE pinned=nullptr;
@@ -224,7 +194,7 @@ static bool install_hooks() {
         Patch &p=patches[i];applied=i+1;p.live=true; // include this entry in rollback even if restoring page protection fails
         if(!write_code((void*)(base+p.rva),p.replacement,p.n)){bool restored=restore();log("PATCH FAILED; rollback=%d",restored);return false;}
     }
-    log("HOOKS READY: %u guarded sites; ATS 1.62.1.1 exact executable",patch_count);return true;
+    log("HOOKS READY: %u sites resolved by instruction patterns; no version or EXE hash restriction",patch_count);return true;
 }
 static void SCSAPIFUNC configuration(scs_event_t,const void *info,scs_context_t) {
     auto c=(const scs_telemetry_configuration_t*)info;if(!c)return;
