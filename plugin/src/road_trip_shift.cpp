@@ -204,6 +204,9 @@ static bool restore() {
     return ok;
 }
 static bool install_hooks() {
+    // Code still pointing at earlier stubs must not receive a second installation.
+    if(applied){log("PREVIOUS HOOKS NOT RESTORED; no hooks");return false;}
+    patch_count=0;thunk_used=0; // SDK reinit: start with fresh bookkeeping and stubs
     char hash[65]={};if(!hash_exe(hash) || strcmp(hash,EXE_HASH)) {log("UNSUPPORTED EXE: sha256=%s; no hooks applied",hash);return false;}
     base=(uintptr_t)GetModuleHandleW(nullptr);original_reader=(Reader)(base+0x1E2430);adaptive_var=(void*)(base+0x2DB1600);
     original_chooser=(Chooser)(base+0x956FA0);
@@ -226,6 +229,8 @@ static bool install_hooks() {
     }
     log("HOOKS READY: %u guarded sites; ATS 1.62.1.1 exact executable",patch_count);return true;
 }
+// Input held across a cancellation must be released before it counts as a press.
+static void cancel_input() {keyboard.cancel(observed_w);analog_pedal.cancel(analog_down);analog_down=false;}
 static void SCSAPIFUNC configuration(scs_event_t,const void *info,scs_context_t) {
     auto c=(const scs_telemetry_configuration_t*)info;if(!c)return;
     // Log identifiers so an SDK change is visible instead of silently treating a truck as a car.
@@ -235,7 +240,7 @@ static void SCSAPIFUNC configuration(scs_event_t,const void *info,scs_context_t)
         snprintf(vehicle,sizeof vehicle,"%s",a->value.value_string.value);break;}
     set_kickdown(false,"vehicle_change");
     reset_cruise_guard("vehicle_change");
-    known_ford=roadtrip::ford(vehicle);scope=0;keyboard.cancel();analog_pedal.cancel();analog_down=false;
+    known_ford=roadtrip::ford(vehicle);scope=0;cancel_input();
     pedal=effective=cruise=brake=effective_brake=0;
     log("VEHICLE config=%s id=%s supported=%d",c->id,vehicle,known_ford);
 }
@@ -250,17 +255,17 @@ static void SCSAPIFUNC channel(const scs_string_t,const scs_u32_t,const scs_valu
 static void SCSAPIFUNC activity(scs_event_t event,const void*,scs_context_t) {
     set_kickdown(false,event==SCS_TELEMETRY_EVENT_paused?"pause":"resume");
     reset_cruise_guard("activity_changed");
-    paused=event==SCS_TELEMETRY_EVENT_paused;scope=0;keyboard.cancel();analog_pedal.cancel();analog_down=false;
+    paused=event==SCS_TELEMETRY_EVENT_paused;scope=0;cancel_input();
     log("DRIVING paused=%d",paused);
 }
 static void SCSAPIFUNC frame_start(scs_event_t,const void *info,scs_context_t) {
     auto t=(const scs_telemetry_frame_start_t*)info;
-    if(t && (t->flags&SCS_TELEMETRY_FRAME_START_FLAG_timer_restart)){set_kickdown(false,"timer_restart");reset_cruise_guard("timer_restart");keyboard.cancel();analog_pedal.cancel();analog_down=false;}
+    if(t && (t->flags&SCS_TELEMETRY_FRAME_START_FLAG_timer_restart)){set_kickdown(false,"timer_restart");reset_cruise_guard("timer_restart");cancel_input();}
     refresh_config_mode();
     scope=patched && enabled && known_ford && !paused;
     DWORD pid=0;GetWindowThreadProcessId(GetForegroundWindow(),&pid);foreground=pid==GetCurrentProcessId();
     ULONGLONG now=GetTickCount64();bool held=(GetAsyncKeyState('W')&0x8000)!=0;
-    if(held)reset_cruise_guard("manual_gas");
+    if(held && foreground)reset_cruise_guard("manual_gas"); // W typed in another window is not driving input
     if(scope && foreground && held!=observed_w) {
         if(held)log("W DOWN gap_ms=%llu input=%.3f effective=%.3f",(unsigned long long)(w_press_tick?now-w_press_tick:0),pedal,effective);
         else log("W UP held_ms=%llu input=%.3f effective=%.3f",(unsigned long long)(w_press_tick?now-w_press_tick:0),pedal,effective);
@@ -315,9 +320,9 @@ extern "C" __declspec(dllexport) SCSAPI_RESULT scs_telemetry_init(scs_u32_t vers
 extern "C" __declspec(dllexport) SCSAPI_VOID scs_telemetry_shutdown() {
     set_kickdown(false,"shutdown");scope=0;keyboard.cancel();analog_pedal.cancel();bool restored=restore();log("SHUTDOWN restored=%d",restored);
     reset_cruise_guard("shutdown");
-    if(restored && thunks)VirtualFree(thunks,0,MEM_RELEASE);
+    // Stubs stay allocated: another game thread may still be returning through one.
     thunks=nullptr;patched=false;
-    disk_log.close();
+    disk_log.close();game_log=nullptr;
 }
 BOOL WINAPI DllMain(HINSTANCE inst,DWORD reason,LPVOID) {
     if(reason==DLL_PROCESS_ATTACH){module_handle=inst;DisableThreadLibraryCalls(inst);}return TRUE;

@@ -6,7 +6,7 @@
 
 The official SCS SDK 1.16 supplies vehicle identity, input and telemetry, but has no documented command for replacing adaptive transmission decisions per shift. The DLL therefore uses guarded native hooks for one exact ATS 1.62.1.1 x64 executable. It never patches the file on disk or writes `g_adaptive_shift` storage.
 
-Every site is verified before transactional installation; failures roll back and shutdown restores patched instructions. Unknown executables or already modified sites are refused. The 20 sites consist of:
+Every site is verified before transactional installation; failures roll back and shutdown restores patched instructions. Unknown executables or already modified sites are refused. Stubs stay allocated after shutdown, because another game thread may still be returning through one. An SDK reinitialization starts with fresh bookkeeping and stubs, and refuses installation while any earlier patch remains unrestored. The 20 sites consist of:
 
 - Seven adaptive comparisons of the cruise/adaptive-block byte at `actor+0x204`; register-preserving stubs bypass the block only within supported active vehicle scope.
 - Eleven mode-reader calls; while kickdown is active they return temporary High Power (`1.6667`) instead of the selected value. UI/serialization readers are untouched.
@@ -16,7 +16,7 @@ The supported SHA-256 and individual RVAs live in `plugin/src/road_trip_shift.cp
 
 ## Input and setting provenance
 
-Vehicle scope accepts exactly the four Ford SDK IDs in `kickdown.h`, with or without one `vehicle.` prefix. Other identities fail closed. Keyboard W is polled for the foreground game only. Two distinct presses within 300 ms request kickdown while the second is held; holding a key is not a second press. Release, pause, focus loss and activity/vehicle changes cancel it. Analog input uses 15% pressed and below 3% released; cruise-generated effective throttle is never treated as a physical pedal double tap.
+Vehicle scope accepts exactly the four Ford SDK IDs in `kickdown.h`, with or without one `vehicle.` prefix. Other identities fail closed. Keyboard W is polled for the foreground game only. Two distinct presses within 300 ms request kickdown while the second is held; holding a key is not a second press. Release, pause, focus loss and activity/vehicle changes cancel it; input held across such a change must be released before it counts as a press. W held in another window does not reset the cruise guard. Analog input uses 15% pressed and below 3% released; cruise-generated effective throttle is never treated as a physical pedal double tap.
 
 Keyboard full-gas behavior comes from native Smart Throttle. The plugin does not synthesize full analog throttle. A single press retains the selected mode.
 

@@ -6,7 +6,7 @@ jobs:
   check:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Check synchronized AGENTS.md and CLAUDE.md
@@ -15,3 +15,13 @@ jobs:
       - name: Check public files, distribution and history
         shell: pwsh
         run: ./scripts/Check-PublicFiles.ps1 -History
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain
+        shell: pwsh
+        run: ./scripts/bootstrap-toolchain.ps1
+      - name: Build DLL and run offline tests
+        shell: pwsh
+        run: ./plugin/build.ps1 -NoGame -SkipPackage

@@ -27,6 +27,10 @@ int wmain(int argc,wchar_t **argv) {
     assert(scs_telemetry_init(SCS_TELEMETRY_VERSION_CURRENT,&init)==SCS_RESULT_ok);
     assert(!patched && applied==0); // the test host's EXE is not on the whitelist
     std::puts("PASS: unsupported host rejected without applying hooks.");
+    patch_count=20;applied=0;assert(!install_hooks() && patch_count==0); // SDK reinit after a clean shutdown
+    patch_count=5;applied=1;assert(!install_hooks() && patch_count==5 && applied==1); // never stack on live patches
+    patch_count=0;applied=0;
+    std::puts("PASS: reinitialization resets bookkeeping and refuses unrestored patches.");
 
     scs_named_value_t attrs[2]{};attrs[0].name="id";attrs[0].value.type=SCS_VALUE_TYPE_string;
     scs_telemetry_configuration_t conf{};conf.id="truck";conf.attributes=attrs;
@@ -39,6 +43,10 @@ int wmain(int argc,wchar_t **argv) {
         attrs[0].value.value_string.value=id;configuration(0,&conf,nullptr);assert(!known_ford);
         frame_start(0,nullptr,nullptr);assert(scope==0);
     }
+    observed_w=true;analog_down=true;activity(SCS_TELEMETRY_EVENT_started,nullptr,nullptr);
+    assert(keyboard.blocked && analog_pedal.blocked); // input held through resume is not a first press
+    observed_w=false;keyboard.cancel();analog_pedal.cancel();
+    std::puts("PASS: keyboard and analog input held across resume stay blocked until release.");
     patched=false;paused=true;
     float setting=10;original_reader=fake_reader;scope=1;kick=0;
     assert(read_mode(&setting)==10);kick=1;assert(read_mode(&setting)==roadtrip::high_power);
