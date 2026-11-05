@@ -2,6 +2,10 @@
 
 [README](../README.md) В· [Build](BUILD.md) В· [Installation](INSTALL.md)
 
+## Permanent control constraint
+
+Never force a numbered gear at a fixed road speed. Do not create speed-to-gear tables, fixed kickdown/cruise gear targets or thresholds copied from owner examples, screenshots or traces. Such numbers are diagnostic examples only. Use the native gearbox candidate and current game data; any experimental failed-upshift ceiling must be learned from an observed failed shift, rather than a fixed gear target. This project decision is recorded in [MEMORY.md](../MEMORY.md) and the synchronized contributor instructions.
+
 ## Scope and hooks
 
 The official SCS SDK 1.16 supplies vehicle identity, input and telemetry, but has no documented command for replacing adaptive transmission decisions per shift. Native hooks are tested on ATS 1.62.1.1 x64. There is no version or executable hash whitelist, and the EXE on disk is unchanged.
