@@ -20,6 +20,7 @@
 #include "common/scssdk_telemetry_truck_common_channels.h"
 #include "kickdown.h"
 #include "keyboard_binding.h"
+#include "binding_worker.h"
 #include "cruise_guard.h"
 #include "cruise_acceleration.h"
 #include "rolling_log.h"
@@ -92,8 +93,10 @@ static ULONGLONG last_sample=0;
 static unsigned sample_count=0;
 static bool foreground=false;
 static roadtrip::KeyboardBinding keyboard_binding;
-static roadtrip::ProfileLog profile_log;
-static std::wstring game_home,controls_override,selected_controls;
+// Game-thread copy of the discovery inputs. The worker gets its own copy at
+// start; this one is read directly only if the worker cannot start.
+static roadtrip::BindingSource binding_source;
+static roadtrip::BindingWorker binding_worker;
 static bool reload_bindings=true,binding_reported=false;
 static ULONGLONG last_binding_check=0;
 using Reader=float(*)(void*);
@@ -161,10 +164,11 @@ static std::string read_input_file(const std::wstring &path) {
     std::string text(size,'\0');size_t read=fread(text.data(),1,text.size(),file);fclose(file);text.resize(read);return text;
 }
 // Reads only bytes appended since the previous check; an unreadable log keeps the known profile.
-static void follow_game_log() {
-    FILE *file=_wfopen((game_home+L"\\game.log.txt").c_str(),L"rb");if(!file)return;
+static void follow_game_log(roadtrip::BindingSource &source) {
+    FILE *file=_wfopen((source.game_home+L"\\game.log.txt").c_str(),L"rb");if(!file)return;
     std::string chunk(64*1024,'\0');size_t n=fread(chunk.data(),1,64,file);
     long long size=_fseeki64(file,0,SEEK_END)?-1:_ftelli64(file);
+    auto &profile_log=source.profile_log;
     if(size>=0) {
         profile_log.begin(chunk.substr(0,n),(uint64_t)size);
         if(!_fseeki64(file,(long long)profile_log.offset,SEEK_SET))
@@ -174,7 +178,8 @@ static void follow_game_log() {
 }
 static void init_input_paths(const wchar_t *ini) {
     wchar_t value[MAX_PATH]={};GetPrivateProfileStringW(L"input",L"controls_file",L"",value,MAX_PATH,ini);
-    controls_override=value;selected_controls.clear();game_home.clear();profile_log={};
+    binding_source={};binding_source.controls_override=value;
+    auto &game_home=binding_source.game_home;
     wchar_t documents[MAX_PATH]={};
     if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_PERSONAL,nullptr,SHGFP_TYPE_CURRENT,documents)))
         game_home=std::wstring(documents)+L"\\American Truck Simulator";
@@ -192,32 +197,58 @@ static void init_input_paths(const wchar_t *ini) {
     }
     keyboard_binding={};reload_bindings=true;binding_reported=false;last_binding_check=0;
 }
-static bool refresh_keyboard_binding(ULONGLONG now) {
-    if(!reload_bindings && now-last_binding_check<1000)return false;
+// Worker thread (or the synchronous fallback): file I/O and parsing only.
+// No logging and no plugin state: the game thread applies and reports results.
+static roadtrip::BindingLoad load_keyboard_binding(roadtrip::BindingSource &source) {
     roadtrip::PerfScope timing(performance,roadtrip::PerfKind::Bindings);
-    reload_bindings=false;last_binding_check=now;
     std::wstring path;
-    if(!controls_override.empty()) {
-        bool absolute=controls_override.size()>1 && controls_override[1]==L':';
-        path=absolute?controls_override:game_home+L"\\"+controls_override;
-    } else if(!game_home.empty()) {
-        follow_game_log();
-        const auto &profile=profile_log.profile;selected_controls.clear();
-        if(!profile.id.empty())selected_controls=game_home+(profile.steam?L"\\steam_profiles\\":L"\\profiles\\")+
+    if(!source.controls_override.empty()) {
+        bool absolute=source.controls_override.size()>1 && source.controls_override[1]==L':';
+        path=absolute?source.controls_override:source.game_home+L"\\"+source.controls_override;
+    } else if(!source.game_home.empty()) {
+        follow_game_log(source);
+        const auto &profile=source.profile_log.profile;
+        if(!profile.id.empty())path=source.game_home+(profile.steam?L"\\steam_profiles\\":L"\\profiles\\")+
             std::wstring(profile.id.begin(),profile.id.end())+L"\\controls.sii";
-        path=selected_controls;
     }
     auto text=read_input_file(path);
-    auto next=roadtrip::parse_keyboard_binding(text);
+    roadtrip::BindingLoad result;result.binding=roadtrip::parse_keyboard_binding(text);result.file_read=!text.empty();
+    return result;
+}
+static bool apply_keyboard_binding(const roadtrip::BindingLoad &load) {
+    const auto &next=load.binding;
     bool changed=next.valid!=keyboard_binding.valid || next.scans!=keyboard_binding.scans;
     keyboard_binding=next;
     if(changed || !binding_reported) {
         std::string scans;
         for(unsigned scan:next.scans){char code[12];snprintf(code,sizeof code,"%s%04X",scans.empty()?"":",",scan);scans+=code;}
         log("KEYBOARD_BINDING source=controls_sii ready=%d keys=%u scans=%s file_read=%d",
-            next.valid,(unsigned)next.scans.size(),scans.empty()?"none":scans.c_str(),!text.empty());binding_reported=true;
+            next.valid,(unsigned)next.scans.size(),scans.empty()?"none":scans.c_str(),load.file_read);binding_reported=true;
     }
     return changed;
+}
+// Game thread: posts a read when one is due and applies finished reads; it
+// never waits for the disk. The 1 s cadence and reload triggers are unchanged.
+static bool refresh_keyboard_binding(ULONGLONG now) {
+    bool changed=false;
+    if(reload_bindings || now-last_binding_check>=1000) {
+        reload_bindings=false;last_binding_check=now;
+        if(binding_worker.running())binding_worker.request();
+        else changed=apply_keyboard_binding(load_keyboard_binding(binding_source));
+    }
+    roadtrip::BindingLoad load;
+    if(binding_worker.take(load))changed=apply_keyboard_binding(load) || changed;
+    return changed;
+}
+static void stop_binding_worker() {
+    if(!binding_worker.running())return;
+    bool exited=binding_worker.stop(2000);
+    log("KEYBOARD_BINDING_WORKER STOP exited=%d",exited);
+}
+static void start_binding_worker() {
+    stop_binding_worker();
+    bool started=binding_worker.start(binding_source,load_keyboard_binding);
+    log("KEYBOARD_BINDING_WORKER START started=%d mode=%s",started,started?"background":"synchronous_fallback");
 }
 static bool keyboard_accelerator_held() {
     if(!foreground || !keyboard_binding.valid)return false;
@@ -589,8 +620,14 @@ static void SCSAPIFUNC frame_end(scs_event_t,const void*,scs_context_t) {
     load.target=cruise;load.throttle=effective;load.gear=gear;
     int old_cap=cruise_cap.load();
     {roadtrip::PerfScope guard_timing(performance,roadtrip::PerfKind::Guard);cruise_guard.update(now,load);cruise_cap=cruise_guard.cap;}
-    if(old_cap!=cruise_guard.cap)trace("CRUISE_GUARD %s source=cruise_load old_cap=%d cap=%d reason=%s speed_kmh=%.2f target_kmh=%.2f throttle=%.3f",
-        cruise_guard.cap?"HOLD":"CLEAR",old_cap,cruise_guard.cap,cruise_guard.reason,speed*3.6f,cruise*3.6f,effective);
+    if(old_cap!=cruise_guard.cap && !cruise_guard.cap)trace("CRUISE_GUARD CLEAR source=cruise_load old_cap=%d cap=0 reason=%s speed_kmh=%.2f target_kmh=%.2f throttle=%.3f",
+        old_cap,cruise_guard.reason,speed*3.6f,cruise*3.6f,effective);
+    if(old_cap!=cruise_guard.cap && cruise_guard.cap) {
+        const auto &e=cruise_guard.evidence;
+        trace("CRUISE_GUARD HOLD source=cruise_load old_cap=%d cap=%d reason=%s speed_kmh=%.2f target_kmh=%.2f throttle=%.3f failed_gear=%d trial=%s trial_speed_kmh=%.2f entry_throttle=%.3f peak_throttle=%.3f trial_age_ms=%llu",
+            old_cap,cruise_guard.cap,cruise_guard.reason,speed*3.6f,cruise*3.6f,effective,e.failed_gear,e.observed_upshift?"observed_upshift":"engaged_gear",
+            e.trial_speed*3.6f,e.entry_throttle,e.peak_throttle,(unsigned long long)e.trial_age_ms);
+    }
     if(now-last_sample<sample_ms)return;
     last_sample=now;
     refresh_config_mode();
@@ -632,6 +669,7 @@ extern "C" __declspec(dllexport) SCSAPI_RESULT scs_telemetry_init(scs_u32_t vers
         if(r==SCS_RESULT_ok)engine_registered|=1u<<i;
         log("CHANNEL %s result=%d optional=1",s.name,r);
     }
+    if(enabled)start_binding_worker();
     if(enabled)patched=install_hooks();else log("Disabled by INI; telemetry only");
     if(enabled && hud_enabled) {
         bool ready=native_hud.initialize((uintptr_t)GetModuleHandleW(nullptr));
@@ -643,6 +681,7 @@ extern "C" __declspec(dllexport) SCSAPI_VOID scs_telemetry_shutdown() {
     clear_mode_notice("shutdown");native_hud={};mode_notice.reset();
     set_kickdown(false,"shutdown");scope=0;cancel_input();bool restored=restore();log("SHUTDOWN restored=%d",restored);
     reset_cruise_guard("shutdown");
+    stop_binding_worker();
     // Stubs stay allocated: another game thread may still be returning through one.
     thunk_memory.reset();patched=false;
     sample_memory(GetTickCount64(),true);

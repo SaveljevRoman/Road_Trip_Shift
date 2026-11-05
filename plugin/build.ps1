@@ -113,6 +113,8 @@ $info=[ordered]@{
     native_sites=20
     checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance','Configured keyboard accelerator with main tap/cancellation semantics and retained analog kickdown',
         'Active profile kept while game.log.txt grows; driving diagnostics kept out of the game log','Cruise guard release on eased load below an ACC-limited target',
+        'Key-binding file reads off the frame thread: blocked read does not stall refresh, request coalescing, stop timeout, synchronous fallback',
+        'Native load reversal only after an observed upshift; post-braking and cruise-resume downshifts teach no ceiling',
         'Main pause/brake/focus cancellation; keyboard kickdown independent of SDK confirmation',
         'Native candidate and actual gear diagnostics','Multi-frame physical release between taps','Economy cruise 3 km/h entry / target exit hysteresis, unchanged Normal hooks and guard','ACC traffic recovery and keyboard kickdown priority on cruise','High Power precedence across all selected modes, cruise options and logging; selection changes while held',
         'Precise cruise target/speed error, transition interval, entry band and brake/input/focus context',

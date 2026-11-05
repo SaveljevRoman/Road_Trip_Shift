@@ -203,6 +203,16 @@ static void test_native_hud() {
     char text[256];roadtrip::notice_text(42,false,text,sizeof text);assert(std::strstr(text,"Custom") && !std::strstr(text,"Off"));
     std::puts("PASS: optional HUD signatures relocate/refuse missing, ambiguous and inconsistent sites; executed native Win64 wrapper for 1000 keyed notices and key-only expiry; latest mode/timer and unknown label.");
 }
+// A controllable slow disk: the loader blocks until the test opens the gate.
+static HANDLE binding_gate=nullptr;
+static std::atomic<int> binding_loads{0};
+static roadtrip::BindingLoad gated_binding_load(roadtrip::BindingSource &source) {
+    ++binding_loads;WaitForSingleObject(binding_gate,INFINITE);return load_keyboard_binding(source);
+}
+template<class Condition>static bool wait_for(Condition condition,DWORD timeout_ms=5000) {
+    for(ULONGLONG start=GetTickCount64();!condition();Sleep(1))if(GetTickCount64()-start>timeout_ms)return false;
+    return true;
+}
 int wmain(int argc,wchar_t **argv) {
 #ifdef _WIN32
     _set_error_mode(_OUT_TO_STDERR);
@@ -232,6 +242,7 @@ int wmain(int argc,wchar_t **argv) {
     reject_optional_engine=true;
     assert(scs_telemetry_init(SCS_TELEMETRY_VERSION_CURRENT,&init)==SCS_RESULT_ok);
     assert(engine_registered==254 && !engine_valid && engine_value(0)==-1);reject_optional_engine=false;
+    assert(binding_worker.running() && std::strstr(logged_events,"KEYBOARD_BINDING_WORKER START started=1 mode=background"));
     logged_events[0]=0;scs_value_t engine_test{};engine_test.type=SCS_VALUE_TYPE_bool;engine_test.value_bool.value=1;
     channel("truck.engine.enabled",SCS_U32_NIL,&engine_test,(void*)8);assert(engine_value(0)==1);
     engine_test.value_bool.value=0;channel("truck.engine.enabled",SCS_U32_NIL,&engine_test,(void*)8);
@@ -261,38 +272,76 @@ int wmain(int argc,wchar_t **argv) {
         frame_start(0,nullptr,nullptr);assert(scope==0);
     }
     // Exercise the runtime profile/file loader using isolated test-owned files.
-    const auto saved_home=game_home;
-    game_home=L"keyboard_binding_fixture";controls_override.clear();selected_controls.clear();profile_log={};
-    CreateDirectoryW(game_home.c_str(),nullptr);
+    // The init-time worker reads the real Documents profile; tests use their own.
+    stop_binding_worker();assert(!binding_worker.running());
+    const auto saved_source=binding_source;
+    roadtrip::BindingSource fixture;fixture.game_home=L"keyboard_binding_fixture";
+    CreateDirectoryW(fixture.game_home.c_str(),nullptr);
     for(const wchar_t *sub:{L"\\profiles",L"\\profiles\\AB12",L"\\steam_profiles",L"\\steam_profiles\\CD34"})
-        CreateDirectoryW((game_home+sub).c_str(),nullptr);
+        CreateDirectoryW((fixture.game_home+sub).c_str(),nullptr);
     auto write_input_file=[&](const wchar_t *relative,const char *text) {
-        FILE *f=_wfopen((game_home+relative).c_str(),L"wb");assert(f);std::fputs(text,f);std::fclose(f);
+        FILE *f=_wfopen((fixture.game_home+relative).c_str(),L"wb");assert(f);std::fputs(text,f);std::fclose(f);
     };
+    auto scans=[](const roadtrip::BindingLoad &load){return load.binding.scans;};
     write_input_file(L"\\game.log.txt","/home/profiles/AB12/controls.sii\n");
     write_input_file(L"\\profiles\\AB12\\controls.sii","mix dforward `keyboard.uarrow?0`\n");
-    reload_bindings=true;refresh_keyboard_binding(1000);
-    assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({0xe048}));
+    auto loaded=load_keyboard_binding(fixture);
+    assert(loaded.binding.valid && loaded.file_read && scans(loaded)==std::vector<unsigned>({0xe048}));
     write_input_file(L"\\profiles\\AB12\\controls.sii","mix dforward `keyboard.a?0`\n");
-    assert(refresh_keyboard_binding(2000));assert(keyboard_binding.scans==std::vector<unsigned>({0x1e}));
+    loaded=load_keyboard_binding(fixture);assert(scans(loaded)==std::vector<unsigned>({0x1e}));
     {   // Later output grows the log far past the former 256 KiB tail window.
-        FILE *f=_wfopen((game_home+L"\\game.log.txt").c_str(),L"ab");assert(f);
+        FILE *f=_wfopen((fixture.game_home+L"\\game.log.txt").c_str(),L"ab");assert(f);
         for(int i=0;i<8192;++i)std::fputs("[road_trip_shift] GEAR_CHOICE source=game_logic caller=direct stock_candidate=9\n",f);
         std::fclose(f);
     }
-    reload_bindings=true;assert(!refresh_keyboard_binding(2000)); // keeps the next 1 s poll at 3000
-    assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({0x1e}));
+    loaded=load_keyboard_binding(fixture);
+    assert(loaded.binding.valid && scans(loaded)==std::vector<unsigned>({0x1e}));
     write_input_file(L"\\game.log.txt","/home/profiles/AB12/controls.sii\n/steam/profiles/CD34/quick_replies.sii\n");
     write_input_file(L"\\steam_profiles\\CD34\\controls.sii","mix dforward `keyboard.key1?0 | joy.b3?0`\n");
-    refresh_keyboard_binding(3000);assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({2}));
+    loaded=load_keyboard_binding(fixture);assert(loaded.binding.valid && scans(loaded)==std::vector<unsigned>({2}));
     write_input_file(L"\\steam_profiles\\CD34\\controls.sii","mix dforward `joy.b3?0`\n");
-    refresh_keyboard_binding(4000);assert(!keyboard_binding.valid);
+    loaded=load_keyboard_binding(fixture);assert(!loaded.binding.valid && loaded.file_read);
     write_input_file(L"\\game.log.txt","no identifiable active profile\n");
-    refresh_keyboard_binding(5000);assert(!keyboard_binding.valid); // never retain stale profile selection
-    controls_override=L"profiles\\AB12\\controls.sii";
-    reload_bindings=true;refresh_keyboard_binding(5001);assert(keyboard_binding.valid);
-    game_home=saved_home;controls_override.clear();selected_controls.clear();profile_log={};reload_bindings=true;
+    loaded=load_keyboard_binding(fixture);assert(!loaded.binding.valid && !loaded.file_read); // never retain stale profile selection
+    auto overridden=fixture;overridden.controls_override=L"profiles\\AB12\\controls.sii";
+    loaded=load_keyboard_binding(overridden);assert(loaded.binding.valid);
     std::puts("PASS: active local/Steam profile files, growing game log, live key rebinding, controller-only binding refusal and explicit controls override.");
+    // Frame callbacks only post reads. A stalled disk read must not block them,
+    // and requests made meanwhile collapse into a single follow-up read.
+    write_input_file(L"\\game.log.txt","/home/profiles/AB12/controls.sii\n");
+    write_input_file(L"\\profiles\\AB12\\controls.sii","mix dforward `keyboard.uarrow?0`\n");
+    binding_gate=CreateEventW(nullptr,TRUE,FALSE,nullptr);assert(binding_gate);binding_loads=0;
+    assert(binding_worker.start(fixture,gated_binding_load));
+    keyboard_binding={};reload_bindings=true;binding_reported=false;logged_events[0]=0;
+    LARGE_INTEGER frequency{},begin{},end{};QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&begin);bool applied_now=refresh_keyboard_binding(1000);QueryPerformanceCounter(&end);
+    assert(!applied_now && !keyboard_binding.valid);
+    assert(wait_for([]{return binding_loads.load()==1;}));
+    double post_ms=(double)(end.QuadPart-begin.QuadPart)*1000.0/(double)frequency.QuadPart;assert(post_ms<50);
+    QueryPerformanceCounter(&begin);
+    for(ULONGLONG t=1001;t<1999;t+=16)assert(!refresh_keyboard_binding(t)); // nothing due, nothing finished
+    reload_bindings=true;assert(!refresh_keyboard_binding(2000));assert(!refresh_keyboard_binding(3000));
+    QueryPerformanceCounter(&end);
+    assert((double)(end.QuadPart-begin.QuadPart)*1000.0/(double)frequency.QuadPart<50); // the read is still blocked
+    assert(binding_loads==1 && !keyboard_binding.valid);
+    SetEvent(binding_gate);
+    bool changed=false;
+    assert(wait_for([&]{changed=refresh_keyboard_binding(3001) || changed;return keyboard_binding.valid;}));
+    assert(changed && keyboard_binding.scans==std::vector<unsigned>({0xe048}));
+    assert(std::strstr(logged_events,"KEYBOARD_BINDING source=controls_sii ready=1 keys=1 scans=E048 file_read=1"));
+    assert(wait_for([]{return binding_loads.load()>=2;}));Sleep(50);assert(binding_loads==2); // coalesced
+    roadtrip::BindingLoad extra;binding_worker.take(extra); // the follow-up result may already have been applied
+    // A read still stuck at shutdown: stop() times out, the thread finishes on its own state.
+    ResetEvent(binding_gate);reload_bindings=true;refresh_keyboard_binding(4000);
+    assert(wait_for([]{return binding_loads.load()==3;}));
+    assert(!binding_worker.stop(20) && !binding_worker.running());
+    assert(roadtrip::BindingWorker::live_threads>=1);
+    SetEvent(binding_gate);assert(wait_for([]{return roadtrip::BindingWorker::live_threads.load()==0;}));
+    // Without a worker the previous synchronous path still works.
+    binding_source=fixture;keyboard_binding={};reload_bindings=true;
+    assert(refresh_keyboard_binding(5000) && keyboard_binding.valid);
+    binding_source=saved_source;CloseHandle(binding_gate);binding_gate=nullptr;reload_bindings=true;
+    std::puts("PASS: binding reads run off the frame thread: a blocked read does not stall refresh, requests coalesce, stop() times out safely, fallback stays synchronous.");
     // Only lifecycle messages reach game.log.txt; driving diagnostics stay in the plugin log.
     sdk_log_all=false;logged_events[0]=0;
     trace("GEAR_CHOICE source=game_logic test=1");log("VEHICLE config=test");

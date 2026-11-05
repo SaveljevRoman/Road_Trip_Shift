@@ -6,7 +6,7 @@
 
 namespace roadtrip {
 enum class PerfKind:unsigned {FrameStart,FrameEnd,Channel,Input,Bindings,Cruise,Guard,Hud,Memory,LogIO,TelemetryIO,ModeTotal,ModeStock,ChoiceTotal,ChoiceStock,Init,Report,Count};
-inline constexpr const char *perf_names[]={"frame_start","frame_end","sdk_channel","input","keyboard_binding","cruise_recovery","cruise_guard","hud","process_memory","event_log_io","csv_status_io","mode_hook_total","mode_stock_reader","chooser_hook_total","stock_chooser","initialization","timing_report"};
+inline constexpr const char *perf_names[]={"frame_start","frame_end","sdk_channel","input","keyboard_binding_io","cruise_recovery","cruise_guard","hud","process_memory","event_log_io","csv_status_io","mode_hook_total","mode_stock_reader","chooser_hook_total","stock_chooser","initialization","timing_report"};
 static_assert(sizeof(perf_names)/sizeof(perf_names[0])==(unsigned)PerfKind::Count,"Every timing section needs a name");
 struct PerfSnapshot {uint64_t count=0,ticks=0,max_ticks=0,over_100us=0,over_1ms=0,over_5ms=0;};
 struct PerfStats {

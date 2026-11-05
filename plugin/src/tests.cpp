@@ -210,7 +210,32 @@ int main(int argc,char **argv) {
     assert(guard.cap==9); // speed keeps dropping: load has not eased
     learn();for(uint64_t t=1100;t<=8800;t+=200)step(t,9,28,0.4f);
     assert(guard.cap==9); // minimum hold still applies
+    // Bronco drive 2026-11-05: ACC braking ended in 10th, cruise demand rose
+    // from zero while speed still fell, and the stock gearbox chose 9th. No
+    // upshift happened while learning, so nothing failed: no ceiling.
+    s.target=53.64f;guard.reset();
+    step(100,10,33.0f,0);s.brake=0.15f;step(300,10,32.5f,0);s.brake=0; // braking resets learning
+    step(500,10,32.2f,0);step(700,10,32.1f,0.12f);step(900,10,32.0f,0.26f);step(1100,9,31.9f,0.26f);
+    assert(guard.cap==0);
+    // Cruise resumed below its target: the engaged 9th downshifts to 6th. A
+    // ceiling of 8 above the current gear would come from no observed upshift.
+    s.target=40.2f;guard.reset();step(100,9,29.5f,0.125f);step(300,9,29.3f,0.2f);step(500,6,29.0f,0.285f);
+    assert(guard.cap==0);
+    // Main's heavy-load evidence on the engaged gear is unchanged.
+    s.target=31;guard.reset();step(100,10,31,0.3f);step(300,10,30.5f,0.9f);step(500,9,30.2f,0.5f);
+    assert(guard.cap==9 && !std::strcmp(guard.reason,"failed_upshift") && !guard.evidence.observed_upshift);
+    // A chain starts at its first observed upshift: speed shed before it (here
+    // after braking) is not loss in the higher gear.
+    s.target=53.64f;guard.reset();step(100,8,35.0f,0);step(300,8,34.6f,0.02f);step(500,9,34.6f,0.02f);
+    step(700,9,34.7f,0.28f);step(900,8,34.7f,0.28f);
+    assert(guard.cap==0);
+    // An observed upshift that loses speed under rising demand still teaches.
+    guard.reset();step(100,8,34.6f,0.18f);step(300,9,34.6f,0.18f);step(500,9,34.4f,0.27f);step(700,8,34.4f,0.27f);
+    assert(guard.cap==8 && !std::strcmp(guard.reason,"native_load_reversal"));
+    assert(guard.evidence.observed_upshift && guard.evidence.failed_gear==9 && guard.evidence.trial_age_ms==400);
+    assert(guard.evidence.entry_throttle<0.19f && guard.evidence.peak_throttle>0.26f);
     std::puts("PASS: cruise failed-upshift hold, release hysteresis, speed independence, braking/manual/kickdown bypass.");
+    std::puts("PASS: native load reversal needs an observed upshift; post-braking/resume re-acceleration downshifts teach no ceiling.");
     std::puts("PASS: vehicle scope, single/double/held/released input, cancellation, timeout, mode restoration.");
     if(argc==2) {
         // Optional offline detector replay, not a simulation of changed vehicle physics.
