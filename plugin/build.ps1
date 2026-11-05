@@ -54,9 +54,9 @@ try {
     if($LASTEXITCODE){throw 'Logging tests failed.'}
 } finally {Pop-Location}
 $dll=Join-Path $out 'road_trip_shift.dll'
-& $Compiler @common -shared -s -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti '-Wl,--no-insert-timestamp' ("-I$sdk") -o $dll (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -luser32
+& $Compiler @common -shared -s -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti '-Wl,--no-insert-timestamp' ("-I$sdk") -o $dll (Join-Path $PSScriptRoot 'src/road_trip_shift.cpp') -luser32 -lshell32 -lole32 -lpsapi
 if($LASTEXITCODE){throw 'Plugin build failed.'}
-& $Compiler @common -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti -municode ("-I$sdk") -o (Join-Path $tests 'native-tests.exe') (Join-Path $PSScriptRoot 'src/native-tests.cpp') -luser32
+& $Compiler @common -static-libgcc -static-libstdc++ -fno-exceptions -fno-rtti -municode ("-I$sdk") -o (Join-Path $tests 'native-tests.exe') (Join-Path $PSScriptRoot 'src/native-tests.cpp') -luser32 -lshell32 -lole32 -lpsapi
 if($LASTEXITCODE){throw 'Native test build failed.'}
 # Resolve before changing working directory; relative input paths remain valid.
 if($GameExe){$GameExe=(Resolve-Path -LiteralPath $GameExe).Path}
@@ -74,7 +74,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install.ps1') -Destination $pac
 $guideDir=Join-Path $package 'docs'
 $licenseDir=Join-Path $package 'licenses'
 New-Item -ItemType Directory -Path $guideDir,$licenseDir -Force | Out-Null
-foreach($name in @('INSTALL.md','INSTALL_RU.md')) {
+foreach($name in @('INSTALL.md','INSTALL_RU.md','MODE_NOTICE.md','MODE_NOTICE_RU.md','IMPLEMENTATION_PLAN.md')) {
     Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination $guideDir -Force
 }
 Copy-Item -Path (Join-Path $root 'third_party/licenses/*') -Destination $licenseDir -Force
@@ -87,7 +87,7 @@ Close ATS, then copy the included bin folder into your game directory. Keep an e
 
 [Installation, compatibility, settings and removal](docs/INSTALL.md) · [Установка на русском](docs/INSTALL_RU.md)
 
-The new cruise protection still needs driving validation. Retain the licenses folder when redistributing this package. Tested on ATS 1.62.1.1 (Windows x64). BUILD-INFO.json records the tested EXE and DLL hash.
+Keyboard accelerator input, signature resolution and cruise protection still need driving validation. Retain the licenses folder when redistributing this package. Tested on ATS 1.62.1.1 (Windows x64). BUILD-INFO.json records the tested EXE and DLL hash.
 "@ | Set-Content -LiteralPath (Join-Path $package 'README.md') -Encoding utf8NoBOM
 @"
 # Road Trip Shift $version — экспериментальная сборка
@@ -98,7 +98,7 @@ The new cruise protection still needs driving validation. Retain the licenses fo
 
 [Установка, совместимость, настройки и удаление](docs/INSTALL_RU.md) · [Установка на английском](docs/INSTALL.md)
 
-Новая защита круиза ещё требует проверки в поездке. При распространении сохраняйте папку licenses. Проверено на ATS 1.62.1.1 (Windows x64). BUILD-INFO.json содержит хеши проверенного EXE и DLL.
+Клавиатурный ввод газа, поиск адресов и защита круиза ещё требуют проверки в поездке. При распространении сохраняйте папку licenses. Проверено на ATS 1.62.1.1 (Windows x64). BUILD-INFO.json содержит хеши проверенного EXE и DLL.
 "@ | Set-Content -LiteralPath (Join-Path $package 'README_RU.md') -Encoding utf8NoBOM
 $info=[ordered]@{
     version=$version
@@ -111,9 +111,19 @@ $info=[ordered]@{
     dll_sha256=(Get-FileHash -LiteralPath $dll).Hash
     native_image_checked=[bool]$GameExe
     native_sites=20
-    checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance',
-        'Relocated signature resolution and missing/ambiguous pattern rejection','Native condition and chooser execution','Isolated patch restoration','Telemetry/log lifecycle','Bounded log rotation and retention')
-    driving_validation='0.2.2 base behavior road-tested; 0.3.0 cruise guard road validation pending'
+    checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance','Configured keyboard accelerator with main tap/cancellation semantics and retained analog kickdown',
+        'Active profile kept while game.log.txt grows; driving diagnostics kept out of the game log','Cruise guard release on eased load below an ACC-limited target',
+        'Key-binding file reads off the frame thread: blocked read does not stall refresh, request coalescing, stop timeout, synchronous fallback',
+        'Native load reversal only after an observed upshift; post-braking and cruise-resume downshifts teach no ceiling',
+        'Main pause/brake/focus cancellation; keyboard kickdown independent of SDK confirmation',
+        'Native candidate and actual gear diagnostics','Multi-frame physical release between taps','Economy cruise 3 km/h entry / target exit hysteresis, unchanged Normal hooks and guard','ACC traffic recovery and keyboard kickdown priority on cruise','High Power precedence across all selected modes, cruise options and logging; selection changes while held',
+        'Precise cruise target/speed error, transition interval, entry band and brake/input/focus context',
+        'Unpublished hook-page cleanup and tracked published retention','Process memory and handle sampling',
+        'Optional native HUD signature resolution, Win64 keyed wrapper execution, single notification timer and expiry',
+        'Optional engine/brake/retarder/clutch telemetry, immediate state edges and explicit unavailable values',
+        'QPC nanosecond profiling, latency buckets, concurrent counters, native sampling and disabled collection',
+        'Missing/ambiguous and relocated signature resolution','Native condition and chooser execution','Isolated patch restoration','Telemetry/log lifecycle','Bounded log rotation and retention')
+    driving_validation='0.2.2 base behavior road-tested; keyboard accelerator input, cruise guard, native HUD appearance/timing and optional engine diagnostics require driving validation'
 }
 $manifest=Join-Path $package 'BUILD-INFO.json'
 $info | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $manifest -Encoding utf8NoBOM

@@ -5,6 +5,8 @@
 
 namespace roadtrip {
 inline constexpr float high_power=1.6667f;
+inline constexpr float economy_mode=10.0f,normal_mode=3.0f;
+inline bool economy_selected(float value){return std::fabs(value-economy_mode)<0.0001f;}
 inline bool ford(const char *id) {
     if(!id)return false;
     // SDK 1.16 reports e.g. "vehicle.ford.f150_23" in configuration.id.
@@ -31,14 +33,16 @@ struct Kickdown {
         return active;
     }
 };
-inline float mode(float original, bool scoped, bool kick, float power) {
-    return scoped && kick ? power : original;
+inline float mode(float original, bool scoped, bool kick, float power,bool cruise_normal=false) {
+    // Same highest-priority High Power shadow as main, for every selected mode.
+    if(scoped && kick)return power;
+    return scoped && cruise_normal && economy_selected(original)?normal_mode:original;
 }
-inline const char *mode_source(bool scoped,bool kick) {
-    return scoped && kick ? "kickdown" : "configured";
+inline const char *mode_source(bool scoped,bool kick,bool cruise_normal=false) {
+    return scoped && kick ? "kickdown" : scoped && cruise_normal?"cruise_acceleration":"configured";
 }
-inline bool mode_override(float original,bool scoped,bool kick,float power) {
-    return scoped && kick && std::fabs(original-power)>0.0001f;
+inline bool mode_override(float original,bool scoped,bool kick,float power,bool cruise_normal=false) {
+    return std::fabs(original-mode(original,scoped,kick,power,cruise_normal))>0.0001f;
 }
 inline const char *mode_name(float value) {
     if(std::fabs(value)<0.0001f)return "off";
