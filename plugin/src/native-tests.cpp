@@ -209,6 +209,7 @@ int wmain(int argc,wchar_t **argv) {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
 #endif
     std::setvbuf(stdout,nullptr,_IONBF,0);
+    sdk_log_all=true; // assertions below observe diagnostic events through fake_log
     test_thunk_lifetime();
     test_signature_resolution();
     test_performance();
@@ -261,7 +262,7 @@ int wmain(int argc,wchar_t **argv) {
     }
     // Exercise the runtime profile/file loader using isolated test-owned files.
     const auto saved_home=game_home;
-    game_home=L"keyboard_binding_fixture";controls_override.clear();selected_controls.clear();
+    game_home=L"keyboard_binding_fixture";controls_override.clear();selected_controls.clear();profile_log={};
     CreateDirectoryW(game_home.c_str(),nullptr);
     for(const wchar_t *sub:{L"\\profiles",L"\\profiles\\AB12",L"\\steam_profiles",L"\\steam_profiles\\CD34"})
         CreateDirectoryW((game_home+sub).c_str(),nullptr);
@@ -274,6 +275,13 @@ int wmain(int argc,wchar_t **argv) {
     assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({0xe048}));
     write_input_file(L"\\profiles\\AB12\\controls.sii","mix dforward `keyboard.a?0`\n");
     assert(refresh_keyboard_binding(2000));assert(keyboard_binding.scans==std::vector<unsigned>({0x1e}));
+    {   // Later output grows the log far past the former 256 KiB tail window.
+        FILE *f=_wfopen((game_home+L"\\game.log.txt").c_str(),L"ab");assert(f);
+        for(int i=0;i<8192;++i)std::fputs("[road_trip_shift] GEAR_CHOICE source=game_logic caller=direct stock_candidate=9\n",f);
+        std::fclose(f);
+    }
+    reload_bindings=true;assert(!refresh_keyboard_binding(2000)); // keeps the next 1 s poll at 3000
+    assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({0x1e}));
     write_input_file(L"\\game.log.txt","/home/profiles/AB12/controls.sii\n/steam/profiles/CD34/quick_replies.sii\n");
     write_input_file(L"\\steam_profiles\\CD34\\controls.sii","mix dforward `keyboard.key1?0 | joy.b3?0`\n");
     refresh_keyboard_binding(3000);assert(keyboard_binding.valid && keyboard_binding.scans==std::vector<unsigned>({2}));
@@ -283,8 +291,14 @@ int wmain(int argc,wchar_t **argv) {
     refresh_keyboard_binding(5000);assert(!keyboard_binding.valid); // never retain stale profile selection
     controls_override=L"profiles\\AB12\\controls.sii";
     reload_bindings=true;refresh_keyboard_binding(5001);assert(keyboard_binding.valid);
-    game_home=saved_home;controls_override.clear();selected_controls.clear();reload_bindings=true;
-    std::puts("PASS: active local/Steam profile files, live key rebinding, controller-only binding refusal and explicit controls override.");
+    game_home=saved_home;controls_override.clear();selected_controls.clear();profile_log={};reload_bindings=true;
+    std::puts("PASS: active local/Steam profile files, growing game log, live key rebinding, controller-only binding refusal and explicit controls override.");
+    // Only lifecycle messages reach game.log.txt; driving diagnostics stay in the plugin log.
+    sdk_log_all=false;logged_events[0]=0;
+    trace("GEAR_CHOICE source=game_logic test=1");log("VEHICLE config=test");
+    assert(!std::strstr(logged_events,"GEAR_CHOICE") && std::strstr(logged_events,"VEHICLE config=test"));
+    sdk_log_all=true;
+    std::puts("PASS: frequent diagnostics stay out of the game log; lifecycle messages still reach it.");
     // Main tap semantics with PR binding discovery; keyboard SDK confirmation is deferred.
     scope=1;foreground=true;brake=0;keyboard_binding.valid=true;
     auto input=[&](ULONGLONG now,float value,int held=-1) {

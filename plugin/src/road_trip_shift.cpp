@@ -92,6 +92,7 @@ static ULONGLONG last_sample=0;
 static unsigned sample_count=0;
 static bool foreground=false;
 static roadtrip::KeyboardBinding keyboard_binding;
+static roadtrip::ProfileLog profile_log;
 static std::wstring game_home,controls_override,selected_controls;
 static bool reload_bindings=true,binding_reported=false;
 static ULONGLONG last_binding_check=0;
@@ -109,13 +110,20 @@ static unsigned hud_duration_ms=2500;
 static uintptr_t hud_submitted=0;
 static const char *kick_origin="none";
 
-static void log(const char *fmt,...) {
+// Frequent diagnostics stay in the plugin's bounded log: echoing them grew
+// game.log.txt by about 1 KB/s. Native tests observe everything via the SDK sink.
+static bool sdk_log_all=false;
+static void write_event(bool sdk,const char *fmt,va_list ap) {
     if(!logging_enabled)return;
     roadtrip::PerfScope timing(performance,roadtrip::PerfKind::LogIO);
-    char msg[1024];va_list ap;va_start(ap,fmt);vsnprintf(msg,sizeof msg,fmt,ap);va_end(ap);
+    char msg[1024];vsnprintf(msg,sizeof msg,fmt,ap);
     char line[1200];snprintf(line,sizeof line,"%llu %s qpc_ns=%llu\n",(unsigned long long)GetTickCount64(),msg,(unsigned long long)performance.elapsed_ns());disk_log.event(line);
-    if(game_log) {char line[1100];snprintf(line,sizeof line,"[road_trip_shift] %s",msg);game_log(SCS_LOG_TYPE_message,line);}
+    if(game_log && (sdk || sdk_log_all)) {char line[1100];snprintf(line,sizeof line,"[road_trip_shift] %s",msg);game_log(SCS_LOG_TYPE_message,line);}
 }
+// Lifecycle and configuration: plugin log and game.log.txt.
+static void log(const char *fmt,...) {va_list ap;va_start(ap,fmt);write_event(true,fmt,ap);va_end(ap);}
+// Driving diagnostics: plugin log only.
+static void trace(const char *fmt,...) {va_list ap;va_start(ap,fmt);write_event(false,fmt,ap);va_end(ap);}
 static void sample_performance(ULONGLONG now,bool force=false) {
     if(!logging_enabled || !performance.enabled.load(std::memory_order_relaxed) ||
        (!force && now-last_timing_sample<timing_sample_ms))return;
@@ -123,7 +131,7 @@ static void sample_performance(ULONGLONG now,bool force=false) {
     last_timing_sample=now;
     for(unsigned i=0;i<(unsigned)roadtrip::PerfKind::Count;++i) {
         auto s=performance.stats[i].snapshot();if(!s.count)continue;
-        log("PERF source=qpc section=%s unit=ns scope=process_lifetime samples=%llu total_ns=%llu avg_ns=%.1f max_ns=%llu over_100us=%llu over_1ms=%llu over_5ms=%llu hook_every=%u paused=%d",
+        trace("PERF source=qpc section=%s unit=ns scope=process_lifetime samples=%llu total_ns=%llu avg_ns=%.1f max_ns=%llu over_100us=%llu over_1ms=%llu over_5ms=%llu hook_every=%u paused=%d",
             roadtrip::perf_names[i],(unsigned long long)s.count,(unsigned long long)performance.ns(s.ticks),
             (double)((long double)s.ticks*1000000000.0L/(long double)performance.frequency/(long double)s.count),
             (unsigned long long)performance.ns(s.max_ticks),(unsigned long long)s.over_100us,(unsigned long long)s.over_1ms,
@@ -141,30 +149,44 @@ static void engine_signal(unsigned i,const scs_value_t *v) {
     bool had=(engine_valid&(1u<<i))!=0;
     bool changed=had!=valid || (valid && (i<5?engine_values[i]!=value:(engine_values[i]==0)!=(value==0)));
     if(valid){engine_values[i]=value;engine_valid|=1u<<i;}else engine_valid&=~(1u<<i);
-    if(changed)log("ENGINE_STATE source=game_telemetry signal=%s available=%d value=%.5f valid_mask=%u engine_enabled=%.0f motor_brake=%.0f parking_brake=%.0f electric_enabled=%.0f retarder_level=%.0f input_clutch=%.4f effective_clutch=%.4f engine_wear=%.5f speed_kmh=%.2f rpm=%.1f gear=%d mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f input_brake=%.4f effective_brake=%.4f",
+    if(changed)trace("ENGINE_STATE source=game_telemetry signal=%s available=%d value=%.5f valid_mask=%u engine_enabled=%.0f motor_brake=%.0f parking_brake=%.0f electric_enabled=%.0f retarder_level=%.0f input_clutch=%.4f effective_clutch=%.4f engine_wear=%.5f speed_kmh=%.2f rpm=%.1f gear=%d mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f input_brake=%.4f effective_brake=%.4f",
         spec.field,valid,valid?value:-1,engine_valid,engine_value(0),engine_value(1),engine_value(2),engine_value(3),engine_value(4),engine_value(5),engine_value(6),engine_value(7),
         speed*3.6f,rpm,gear,base_mode,(unsigned)kick.load(),cruise*3.6f,pedal,effective,brake,effective_brake);
 }
-static std::string read_input_file(const std::wstring &path,bool tail=false) {
+static std::string read_input_file(const std::wstring &path) {
     FILE *file=_wfopen(path.c_str(),L"rb");if(!file)return {};
     constexpr long limit=256*1024;
     if(fseek(file,0,SEEK_END)){fclose(file);return {};}
-    long size=ftell(file);if(size<0 || (!tail && size>limit)){fclose(file);return {};}
-    long begin=tail && size>limit?size-limit:0;
-    if(fseek(file,begin,SEEK_SET)){fclose(file);return {};}
-    std::string text(size-begin,'\0');size_t read=fread(text.data(),1,text.size(),file);fclose(file);text.resize(read);return text;
+    long size=ftell(file);if(size<0 || size>limit || fseek(file,0,SEEK_SET)){fclose(file);return {};}
+    std::string text(size,'\0');size_t read=fread(text.data(),1,text.size(),file);fclose(file);text.resize(read);return text;
+}
+// Reads only bytes appended since the previous check; an unreadable log keeps the known profile.
+static void follow_game_log() {
+    FILE *file=_wfopen((game_home+L"\\game.log.txt").c_str(),L"rb");if(!file)return;
+    std::string chunk(64*1024,'\0');size_t n=fread(chunk.data(),1,64,file);
+    long long size=_fseeki64(file,0,SEEK_END)?-1:_ftelli64(file);
+    if(size>=0) {
+        profile_log.begin(chunk.substr(0,n),(uint64_t)size);
+        if(!_fseeki64(file,(long long)profile_log.offset,SEEK_SET))
+            while(profile_log.offset<(uint64_t)size && (n=fread(chunk.data(),1,chunk.size(),file))>0)profile_log.feed(chunk.data(),n);
+    }
+    fclose(file);
 }
 static void init_input_paths(const wchar_t *ini) {
     wchar_t value[MAX_PATH]={};GetPrivateProfileStringW(L"input",L"controls_file",L"",value,MAX_PATH,ini);
-    controls_override=value;selected_controls.clear();game_home.clear();
+    controls_override=value;selected_controls.clear();game_home.clear();profile_log={};
     wchar_t documents[MAX_PATH]={};
     if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_PERSONAL,nullptr,SHGFP_TYPE_CURRENT,documents)))
         game_home=std::wstring(documents)+L"\\American Truck Simulator";
     int argc=0;auto argv=CommandLineToArgvW(GetCommandLineW(),&argc);
     if(argv) {
         for(int i=1;i+1<argc;++i)if(!wcscmp(argv[i],L"-homedir")) {
+            // The game keeps its data in "American Truck Simulator" inside -homedir, as under Documents.
             wchar_t full[MAX_PATH]={};DWORD n=GetFullPathNameW(argv[i+1],MAX_PATH,full,nullptr);
-            game_home=n && n<MAX_PATH?full:L"";break;
+            game_home=n && n<MAX_PATH?full:L"";
+            while(!game_home.empty() && (game_home.back()==L'\\' || game_home.back()==L'/'))game_home.pop_back();
+            if(!game_home.empty())game_home+=L"\\American Truck Simulator";
+            break;
         }
         LocalFree(argv);
     }
@@ -179,8 +201,8 @@ static bool refresh_keyboard_binding(ULONGLONG now) {
         bool absolute=controls_override.size()>1 && controls_override[1]==L':';
         path=absolute?controls_override:game_home+L"\\"+controls_override;
     } else if(!game_home.empty()) {
-        selected_controls.clear();
-        auto profile=roadtrip::last_profile_controls(read_input_file(game_home+L"\\game.log.txt",true));
+        follow_game_log();
+        const auto &profile=profile_log.profile;selected_controls.clear();
         if(!profile.id.empty())selected_controls=game_home+(profile.steam?L"\\steam_profiles\\":L"\\profiles\\")+
             std::wstring(profile.id.begin(),profile.id.end())+L"\\controls.sii";
         path=selected_controls;
@@ -210,7 +232,7 @@ static bool keyboard_accelerator_held() {
 }
 static void reset_cruise_guard(const char *reason) {
     int before=cruise_cap.exchange(0);cruise_guard.reset(reason);
-    if(before)log("CRUISE_GUARD CLEAR source=cruise_load old_cap=%d reason=%s",before,reason);
+    if(before)trace("CRUISE_GUARD CLEAR source=cruise_load old_cap=%d reason=%s",before,reason);
 }
 static void set_cruise_normal(bool next,const char *reason) {
     // A pending cruise update must never re-enable Normal during kickdown.
@@ -220,7 +242,7 @@ static void set_cruise_normal(bool next,const char *reason) {
     cruise_normal=next;
     float after=roadtrip::mode(base_mode,scope!=0,kick!=0,power_mode,next);
     ULONGLONG now=GetTickCount64();
-    log("CRUISE_ACCEL %s source=plugin reason=%s mode_config=%.5f effective_before=%.5f effective_after=%.5f target_kmh=%.6f speed_kmh=%.6f error_kmh=%.6f transition=%llu since_transition_ms=%llu input=%.6f effective=%.6f input_brake=%.6f effective_brake=%.6f sdk_valid=%d keyboard_held=%d kickdown=%u scope=%u foreground=%d normal_enabled=%d guard_cap=%d gear=%d rpm=%.1f recovery_gap_kmh=%.3f",
+    trace("CRUISE_ACCEL %s source=plugin reason=%s mode_config=%.5f effective_before=%.5f effective_after=%.5f target_kmh=%.6f speed_kmh=%.6f error_kmh=%.6f transition=%llu since_transition_ms=%llu input=%.6f effective=%.6f input_brake=%.6f effective_brake=%.6f sdk_valid=%d keyboard_held=%d kickdown=%u scope=%u foreground=%d normal_enabled=%d guard_cap=%d gear=%d rpm=%.1f recovery_gap_kmh=%.3f",
         next?"ON":"OFF",reason,base_mode,before,after,cruise*3.6f,speed*3.6f,(cruise-speed)*3.6f,
         ++cruise_transition_count,(unsigned long long)(last_cruise_transition?now-last_cruise_transition:0),
         pedal,effective,brake,effective_brake,pedal_sample,raw_keyboard_held,(unsigned)kick.load(),(unsigned)scope.load(),foreground,cruise_normal_enabled,cruise_cap.load(),gear,rpm,roadtrip::CruiseAcceleration::recovery_gap_kmh);
@@ -246,7 +268,7 @@ static void refresh_config_mode() {
 static void clear_mode_notice(const char *reason,bool cancel_pending=true) {
     if(hud_submitted) {
         if(native_hud.manager()==hud_submitted)native_hud.expire(hud_submitted);
-        log("MODE_NOTICE EXPIRE_REQUEST source=game_hud reason=%s",reason);
+        trace("MODE_NOTICE EXPIRE_REQUEST source=game_hud reason=%s",reason);
     }
     hud_submitted=0;mode_notice.visible=false;
     if(cancel_pending)mode_notice.cancel();
@@ -265,7 +287,7 @@ static void update_mode_notice(ULONGLONG now) {
         char text[256];roadtrip::notice_text(mode_notice.selected,hud_russian,text,sizeof text);
         if(native_hud.show(manager,text)) {
             hud_submitted=manager;
-            log("MODE_NOTICE REQUEST source=game_hud mode_config=%.5f name=%s duration_ms=%u language=%s",
+            trace("MODE_NOTICE REQUEST source=game_hud mode_config=%.5f name=%s duration_ms=%u language=%s",
                 mode_notice.selected,roadtrip::mode_name(mode_notice.selected),hud_duration_ms,hud_russian?"ru":"en");
         } else mode_notice.visible=false;
     }
@@ -280,7 +302,7 @@ static void set_kickdown(bool next,const char *reason) {
     if(next)reset_cruise_guard("kickdown");
     kick=next;
     float after=roadtrip::mode(base_mode,scope!=0,next,power_mode,cruise_normal!=0);
-    log("KICKDOWN %s source=plugin origin=%s reason=%s mode_config=%.5f effective_before=%.5f effective_after=%.5f value_changed=%d",
+    trace("KICKDOWN %s source=plugin origin=%s reason=%s mode_config=%.5f effective_before=%.5f effective_after=%.5f value_changed=%d",
         next?"ON":"OFF",kick_origin,reason,base_mode,before,after,std::fabs(after-before)>0.0001f);
     if(next) {
         set_cruise_normal(false,"kickdown_priority");
@@ -348,7 +370,7 @@ static void sample_memory(ULONGLONG now,bool force=false) {
         if(!memory_baseline_seen){memory_baseline=counters.PrivateUsage;memory_baseline_seen=true;}
     }
     memory_sample.handles_valid=GetProcessHandleCount(GetCurrentProcess(),&memory_sample.handles)!=0;
-    log("MEMORY source=process valid=%d private_bytes=%llu working_set_bytes=%llu peak_working_set_bytes=%llu private_delta_bytes=%lld handles_valid=%d handles=%lu plugin_thunk_committed_bytes=%llu plugin_thunk_active_bytes=%llu plugin_thunk_retained_bytes=%llu plugin_thunk_allocations=%u plugin_thunk_frees=%u plugin_thunk_retained_blocks=%u plugin_thunk_free_failures=%u",
+    trace("MEMORY source=process valid=%d private_bytes=%llu working_set_bytes=%llu peak_working_set_bytes=%llu private_delta_bytes=%lld handles_valid=%d handles=%lu plugin_thunk_committed_bytes=%llu plugin_thunk_active_bytes=%llu plugin_thunk_retained_bytes=%llu plugin_thunk_allocations=%u plugin_thunk_frees=%u plugin_thunk_retained_blocks=%u plugin_thunk_free_failures=%u",
         memory_sample.valid,(unsigned long long)memory_sample.private_bytes,(unsigned long long)memory_sample.working_set_bytes,
         (unsigned long long)memory_sample.peak_working_set_bytes,memory_sample.valid?(long long)memory_sample.private_bytes-(long long)memory_baseline:0,
         memory_sample.handles_valid,(unsigned long)memory_sample.handles,(unsigned long long)thunk_memory.committed_bytes(),
@@ -527,17 +549,17 @@ static void process_input(ULONGLONG now,bool keyboard_held) {
         keykick?"keyboard_double":analog?"pedal_double":
         !keyboard_binding.valid?"keyboard_binding_unavailable":held?"single_press":"released";
     if(scope && (held || observed_input || next) && strcmp(reported_gate,input_gate))
-        log("INPUT_GATE reason=%s key_held=%d sdk_valid=%d input=%.4f brake=%.4f armed=%d blocked=%d analog_down=%d analog_armed=%d",
+        trace("INPUT_GATE reason=%s key_held=%d sdk_valid=%d input=%.4f brake=%.4f armed=%d blocked=%d analog_down=%d analog_armed=%d",
             input_gate,held,pedal_sample,pedal,brake,keyboard.armed,keyboard.blocked,analog_down,analog_pedal.armed);
     reported_gate=input_gate;
-    if(held!=observed_input)log("THROTTLE %s source=game_input input=%.4f effective=%.4f sdk_valid=%d",held?"DOWN":"UP",pedal,effective,pedal_sample);
+    if(held!=observed_input)trace("THROTTLE %s source=game_input input=%.4f effective=%.4f sdk_valid=%d",held?"DOWN":"UP",pedal,effective,pedal_sample);
     observed_input=held;
     set_kickdown(next,next?(keykick?"keyboard_accelerator_double":"pedal_double"):input_gate);
 }
 static void log_gear_decisions(ULONGLONG now) {
     if(!logging_enabled || !scope)return;
     if(gear!=reported_gear) {
-        log("GEAR_CHANGED source=game_telemetry old=%d new=%d speed_kmh=%.2f rpm=%.1f mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f brake=%.4f guard_cap=%d",
+        trace("GEAR_CHANGED source=game_telemetry old=%d new=%d speed_kmh=%.2f rpm=%.1f mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f brake=%.4f guard_cap=%d",
             reported_gear,gear,speed*3.6f,rpm,base_mode,(unsigned)kick.load(),cruise*3.6f,pedal,effective,std::max(brake,effective_brake),cruise_cap.load());
         reported_gear=gear;
     }
@@ -545,7 +567,7 @@ static void log_gear_decisions(ULONGLONG now) {
         auto calls=chooser_calls[path].load();auto decision=chooser_decision[path].load();
         if(calls==reported_choices[path])continue;
         if(decision==reported_decision[path] && now-last_choice_log[path]<1500)continue;
-        log("GEAR_CHOICE source=game_logic caller=%s calls=%llu stock_candidate=%d plugin_return=%d observed_gear=%d speed_kmh=%.2f rpm=%.1f mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f guard_cap=%d",
+        trace("GEAR_CHOICE source=game_logic caller=%s calls=%llu stock_candidate=%d plugin_return=%d observed_gear=%d speed_kmh=%.2f rpm=%.1f mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f guard_cap=%d",
             path?"direct":"adjacent_limited",calls,(int32_t)(decision>>32),(int32_t)decision,gear,speed*3.6f,rpm,base_mode,(unsigned)kick.load(),cruise*3.6f,pedal,effective,cruise_cap.load());
         reported_choices[path]=calls;reported_decision[path]=decision;last_choice_log[path]=now;
     }
@@ -567,7 +589,7 @@ static void SCSAPIFUNC frame_end(scs_event_t,const void*,scs_context_t) {
     load.target=cruise;load.throttle=effective;load.gear=gear;
     int old_cap=cruise_cap.load();
     {roadtrip::PerfScope guard_timing(performance,roadtrip::PerfKind::Guard);cruise_guard.update(now,load);cruise_cap=cruise_guard.cap;}
-    if(old_cap!=cruise_guard.cap)log("CRUISE_GUARD %s source=cruise_load old_cap=%d cap=%d reason=%s speed_kmh=%.2f target_kmh=%.2f throttle=%.3f",
+    if(old_cap!=cruise_guard.cap)trace("CRUISE_GUARD %s source=cruise_load old_cap=%d cap=%d reason=%s speed_kmh=%.2f target_kmh=%.2f throttle=%.3f",
         cruise_guard.cap?"HOLD":"CLEAR",old_cap,cruise_guard.cap,cruise_guard.reason,speed*3.6f,cruise*3.6f,effective);
     if(now-last_sample<sample_ms)return;
     last_sample=now;

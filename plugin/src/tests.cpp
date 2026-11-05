@@ -60,7 +60,29 @@ int main(int argc,char **argv) {
     assert(profile.id=="34CD" && profile.steam);
     assert(last_profile_controls("/home/profiles/../../controls.sii").id.empty());
     assert(last_profile_controls("/home/profiles(backup)/AB12/controls.sii").id.empty());
+    // game.log.txt keeps growing while driving; the active profile must survive it.
+    auto follow=[](ProfileLog &l,const std::string &file,size_t chunk) {
+        l.begin(file.substr(0,64),file.size());
+        for(size_t at=l.offset;at<file.size();at+=chunk)l.feed(file.data()+at,std::min(chunk,file.size()-at));
+    };
+    std::string game="00:00:00.000 : log created on : Wednesday November 05 2026 @ 17:12:00\n";
+    game+="/home/profiles/AB12/controls.sii\n";
+    ProfileLog profile_log;follow(profile_log,game,5); // reads split inside the path
+    assert(profile_log.profile.id=="AB12" && !profile_log.profile.steam);
+    while(game.size()<1024*1024)game+="[road_trip_shift] GEAR_CHOICE source=game_logic caller=direct stock_candidate=9 plugin_return=9\n";
+    assert(last_profile_controls(game.substr(game.size()-256*1024)).id.empty()); // the old tail window loses it
+    follow(profile_log,game,256*1024);assert(profile_log.profile.id=="AB12");
+    game+="/home/steam_profiles/CD34/controls.sii\n";follow(profile_log,game,7);
+    assert(profile_log.profile.id=="CD34" && profile_log.profile.steam); // real profile switch
+    game+="/home/profiles/EF";follow(profile_log,game,3);assert(profile_log.profile.id=="CD34");
+    game+="56/controls.sii\n";follow(profile_log,game,3);assert(profile_log.profile.id=="EF56"); // completed later
+    follow(profile_log,"00:00:01.000 : new log\n",64);assert(profile_log.profile.id.empty()); // shorter: new log
+    follow(profile_log,game,4096);assert(profile_log.profile.id=="EF56");
+    std::string rewritten="00:00:00.000 : log created on : Thursday November 06 2026 @ 09:00:00\n";
+    while(rewritten.size()<game.size()+10)rewritten+="no profile yet\n";
+    follow(profile_log,rewritten,4096);assert(profile_log.profile.id.empty()); // same name, different log
     std::puts("PASS: remapped keyboard bindings, controller alternatives, unsupported/ambiguous bindings, profile selection and traversal refusal.");
+    std::puts("PASS: active profile survives a growing game log, split reads, profile switch and log restart.");
     for(float m : {0.0f,10.0f,3.0f,high_power,7.5f}) {
         assert(mode(m,true,false,high_power)==m);
         assert(mode(m,true,true,high_power)==high_power);
@@ -174,6 +196,20 @@ int main(int argc,char **argv) {
     assert(guard_choice(10,guard.cap,true,true)==10);
     // A new driver target or braking must discard this learning immediately.
     s.target=50;step(1100,6,46.4f,0.7f);assert(guard.cap==0);
+    // Throttle noise is not increased demand: no ceiling from an ordinary downshift.
+    s.target=31;guard.reset();step(100,9,31,0.20f);step(300,10,30.9f,0.21f);step(500,10,30.8f,0.24f);step(700,9,30.7f,0.22f);
+    assert(guard.cap==0);
+    // ACC can hold speed below the displayed target without braking. Release on
+    // eased load, not on reaching that target, or the ceiling never ends.
+    auto learn=[&]{guard.reset();step(100,9,31,0.3f);step(300,10,31,0.3f);step(500,10,30.5f,0.9f);step(900,9,30,0.3f);assert(guard.cap==9);};
+    learn();for(uint64_t t=1100;t<=12900;t+=200)step(t,9,28,0.4f);
+    assert(guard.cap==0 && !std::strcmp(guard.reason,"load_relaxed"));
+    learn();for(uint64_t t=1100;t<=12900;t+=200)step(t,9,33,0); // downhill overspeed, no load
+    assert(guard.cap==0);
+    learn();float falling=30;for(uint64_t t=1100;t<=20900;t+=200){falling-=0.06f;step(t,9,falling,0.5f);}
+    assert(guard.cap==9); // speed keeps dropping: load has not eased
+    learn();for(uint64_t t=1100;t<=8800;t+=200)step(t,9,28,0.4f);
+    assert(guard.cap==9); // minimum hold still applies
     std::puts("PASS: cruise failed-upshift hold, release hysteresis, speed independence, braking/manual/kickdown bypass.");
     std::puts("PASS: vehicle scope, single/double/held/released input, cancellation, timeout, mode restoration.");
     if(argc==2) {

@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <cstdint>
+#include <algorithm>
 
 namespace roadtrip {
 struct KeyboardBinding {
@@ -89,4 +91,22 @@ inline ProfileControls last_profile_controls(const std::string &log) {
     }
     return result;
 }
+// Follows game.log.txt as it grows: the newest profile path in the whole current
+// log selects controls.sii, so later game/plugin output cannot push it out of a window.
+struct ProfileLog {
+    ProfileControls profile;
+    uint64_t offset=0;
+    std::string head,carry;
+    // A shorter file or different first bytes is a new log: forget the old profile.
+    void begin(const std::string &first,uint64_t size) {
+        if(size<offset || first.compare(0,head.size(),head))*this={};
+        head=first;
+    }
+    void feed(const char *data,size_t size) {
+        std::string text=carry;text.append(data,size);offset+=size;
+        auto found=last_profile_controls(text);if(!found.id.empty())profile=found;
+        // Enough to complete a profile path split between reads.
+        carry=text.substr(text.size()-std::min<size_t>(text.size(),256));
+    }
+};
 }
