@@ -6,7 +6,15 @@
 
 Complete the [Bronco driving checks](TESTING_BRONCO.md) for PR #1: keyboard kickdown, cruise stability and process/plugin memory trends. Merge and release remain subject to the owner's separate confirmation. The feature below is planned research, not implemented or included in the current test DLL.
 
+## Current driving follow-up
+
+Economy now temporarily borrows Normal for an increased active cruise target and restores the selection afterwards; High Power acceleration remains native. This is implemented in the test branch and awaits driving validation. The owner deferred pause/focus and controller manual checks.
+
+Kickdown investigation: distinguish the native adjacent-gear clamp after candidate selection; never assign gears at fixed road speeds. For High Power holding, separate stock downshift requests from the anti-hunt ceiling, which can itself delay higher gears. Stability is not confirmed fixed.
+
 ## Transmission-mode notification
+
+Owner clarification: use **the game's own UI/HUD**, with no external topmost window, OBS or companion application. Research a native game text/notification path resolved at startup. An existing ImGui overlay does not establish that such a native UI entry point is available.
 
 Requested on 2026-11-05. Changing the adaptive transmission mode using an assigned game button is silent. Show a small, temporary indicator so the driver can see the selected mode without opening settings.
 
@@ -34,7 +42,7 @@ Reviewed upstream documentation and project descriptions on 2026-11-05. Referenc
 | Reference | Relevant finding | Application |
 | --- | --- | --- |
 | [PrismTextureStreamer](https://github.com/Baldywaldy09/PrismTextureStreamer) | An ATS/ETS2 plugin loaded from the plugins directory, with an in-game Dear ImGui overlay and DirectX 11 integration | Reference for an embedded overlay. Its screen-texture capture/redirect machinery is unnecessary for a small mode notification. |
-| [ETS2/ATS Telemetry Overlay](https://github.com/rpfilomeno/ETS2-ATS-Telemetry-Overlay) | Auto-hiding telemetry overlay; its README requires windowed mode | Reference for a window-based prototype. Do not assume that it covers exclusive fullscreen. |
+| [ETS2/ATS Telemetry Overlay](https://github.com/rpfilomeno/ETS2-ATS-Telemetry-Overlay) | Auto-hiding telemetry overlay; its README requires windowed mode | Researched window-based approach, excluded by the owner's native-UI requirement; it also does not establish exclusive-fullscreen support. |
 | [ETS2 Local Radio](https://github.com/Koenvh1/ets2-local-radio) | An existing ETS2/ATS overlay with documented DirectX and resize-related behavior | Reference for expected integration and lifecycle cases. |
 | [Dear ImGui Win32/DX11 example](https://github.com/ocornut/imgui/blob/master/examples/example_win32_directx11/main.cpp) | Upstream example covers renderer setup, frame drawing and device/window resource handling | Rendering reference; the example itself is a standalone application, not an ATS injection recipe. |
 | [Microsoft extended window styles](https://learn.microsoft.com/en-us/windows/win32/winmsg/extended-window-styles) | Documents layered, no-activate and related window styles | Reference for a nonactivating window-based alternative; input pass-through and fullscreen behavior still require implementation/testing. |
@@ -43,7 +51,7 @@ Reviewed upstream documentation and project descriptions on 2026-11-05. Referenc
 ### Implementation sequence
 
 1. Finish the current Bronco/gearbox and memory investigation first. Keep the installed test DLL unchanged while the owner drives.
-2. Prototype a tiny notification renderer separately from transmission logic. Compare an embedded DX11 draw path with a nonactivating window for the owner's actual display mode. Prefer minimal dependencies and no separate server/application requirement where practical; renderer selection remains open.
+2. Prototype a tiny notification renderer separately from transmission logic. Research native game notification/HUD text calls and their lifetimes. External topmost windows, companion overlays and OBS are excluded. A suitable native UI entry point has not yet been found or implemented.
 3. Connect it to actual setting-change observations, using session-resolved game addresses already available. Do not add fixed game addresses or a version whitelist. Rendering failure must leave gearbox operation intact.
 4. Add a single bounded notification state, INI settings, EN/RU labels and diagnostics. A rendering thread must not call SDK APIs; transfer only the small notification state safely.
 5. Verify windowed/borderless/fullscreen behavior before claiming support. Test rapid changes, repeated modes, initial load, unknown values, pause/focus loss, Alt-Tab, resize, DPI, device recreation, Steam overlays and diagnostics/notification disable.

@@ -1,12 +1,12 @@
 {
   "version": "0.3.1",
   "channel": "experimental",
-  "built_at_utc": "2026-11-05T05:31:09Z",
+  "built_at_utc": "2026-11-05T06:06:19Z",
   "tested_game": "American Truck Simulator 1.62.1.1 Windows x64",
   "tested_exe_sha256": "28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7",
   "address_resolution": "instruction_signatures",
   "version_hash_restriction": false,
-  "dll_sha256": "9F5A6982ADB4F00E9811F236B2F01E5040EE39C3729ED7326F5D154ADA93096B",
+  "dll_sha256": "DE3803DEF03A7FDFCB9183133E86A11CC2F1EC05B86B7C8CDF1744ED82791798",
   "native_image_checked": true,
   "native_sites": 20,
   "checks": [
@@ -17,6 +17,7 @@
     "Smart Throttle ramp confirmation and unconfirmed stroke rejection",
     "Native candidate and actual gear diagnostics",
     "Multi-frame physical release between taps",
+    "Economy increased cruise target borrows Normal and restores selection",
     "Unpublished hook-page cleanup and tracked published retention",
     "Process memory and handle sampling",
     "Missing/ambiguous and relocated signature resolution",

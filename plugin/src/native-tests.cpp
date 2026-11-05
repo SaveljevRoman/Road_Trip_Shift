@@ -245,6 +245,23 @@ int wmain(int argc,wchar_t **argv) {
     assert(strstr(logged_events,"effective_after=1.66670 value_changed=1"));
     std::puts("PASS: multi-frame keyboard double tap overrides Economy in the native reader, holds and restores without changing the setting.");
 
+    logged_events[0]=0;cruise_acceleration.reset();cruise_normal=0;setting=10;base_mode=10;
+    scope=1;kick=0;pedal=brake=effective_brake=0;pedal_sample=true;cruise=speed=20;
+    update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
+    cruise=25;update_cruise_acceleration();assert(cruise_normal && setting==10 && read_mode(&setting)==3);
+    assert(strstr(logged_events,"CRUISE_ACCEL ON source=plugin reason=target_increased"));
+    set_kickdown(true,"keyboard_accelerator_double");assert(read_mode(&setting)==roadtrip::high_power);
+    update_cruise_acceleration();assert(!cruise_normal);set_kickdown(false,"released");assert(read_mode(&setting)==10);
+    cruise=30;update_cruise_acceleration();assert(cruise_normal);
+    speed=30;update_cruise_acceleration();assert(!cruise_normal && setting==10 && read_mode(&setting)==10);
+    assert(strstr(logged_events,"reason=target_reached"));
+    setting=roadtrip::high_power;refresh_config_mode();cruise=35;update_cruise_acceleration();
+    assert(!cruise_normal && read_mode(&setting)==roadtrip::high_power);
+    setting=10;refresh_config_mode();cruise=40;update_cruise_acceleration();assert(cruise_normal);
+    cancel_input();assert(!cruise_normal && read_mode(&setting)==10);
+    cruise=speed=0;
+    std::puts("PASS: cruise-target SDK state reaches the native Normal reader without writing Economy, restores at target and preserves kickdown/High Power.");
+
     original_chooser=fake_chooser;int stock_choice=10;scope=1;kick=0;cruise_cap=9;
     assert(choose_gear(&stock_choice)==9);assert(cruise_clamps==1);
     stock_choice=7;assert(choose_gear(&stock_choice)==7);

@@ -47,12 +47,13 @@ Edit `bin/win_x64/plugins/road_trip_shift/road_trip_shift.ini` while ATS is clos
 | `plugin / enabled` | `1` | `0` disables plugin behavior |
 | `input / double_tap_ms` | `300` | Maximum press interval in ms; clamped to 100–700 |
 | `input / controls_file` | empty | Optional controls.sii override; empty enables automatic active-profile discovery |
+| `cruise / normal_acceleration` | `1` | Economy uses Normal after an increased active cruise target; restore at target/cancellation |
 | `cruise / anti_hunt` | `1` | `0` disables new cruise gear-hunting protection for comparison |
 | `logging / enabled` | `1` | `0` disables diagnostic file/status writes and this plugin's SDK log messages |
 | `logging / max_total_mb` | `50` | Total event/CSV storage budget in MiB; clamped to 1–1024 |
 | `logging / sample_ms` | `200` | Telemetry interval in ms; clamped to 100–2000 |
 
-Double-press the assigned keyboard accelerator and hold the second press for temporary High Power; releasing that key restores the configured mode even if a controller is holding throttle. A single keyboard press and cruise retain the selected mode. Gamepad buttons, triggers and pedals cannot activate plugin kickdown on their own. Startup, pause/resume, focus loss, timer restart and vehicle changes require a key release before another double press. No W fallback is used.
+Double-press the assigned keyboard accelerator and hold the second press for temporary High Power; releasing that key restores the configured mode even if a controller is holding throttle. A single keyboard press and cruise holding speed retain the selected mode; the target-increase exception is described below. Gamepad buttons, triggers and pedals cannot activate plugin kickdown on their own. Startup, pause/resume, focus loss, timer restart and vehicle changes require a key release before another double press. No W fallback is used.
 
 The plugin reads `mix dforward` in the active profile's `controls.sii`, then confirms keyboard input with fresh SDK throttle. It supports letters, number-row keys, F1–F12, arrows, space, tab, backspace, Esc, separate Shift/Ctrl/Alt keys, navigation and common punctuation keys. Simple alternative bindings joined by OR are supported, including controller alternatives which are ignored. Complex expressions, modifiers combined with AND, unknown aliases, Enter and numpad bindings are refused rather than guessed. Windows virtual-key polling does not reliably distinguish the physical Enter/numpad variants. Unsupported bindings leave keyboard kickdown disabled. Controller software that emulates keyboard events is treated as keyboard input.
 
@@ -73,6 +74,7 @@ The default **50 MiB** budget applies to the plugin's recognized `.log` and `.cs
 - `keyboard_binding_ready` and `input_sample_valid` in status show whether a binding and fresh accelerator sample are available. `KEYBOARD_BINDING source=controls_sii` records readiness without local paths.
 - CSV `input_down` replaces `w_down` and describes the qualified physical accelerator-key state; `THROTTLE DOWN/UP source=game_input` records its edges. Only keys from the keyboard accelerator binding are polled.
 - `CONFIG_MODE_CHANGED source=game_setting` records a game setting change, including profile loads. `KICKDOWN ON/OFF source=plugin` records a temporary plugin request. Already configured High Power can produce `value_changed=0`.
+- When an already active cruise target is increased with Economy selected, the plugin temporarily supplies Normal until speed reaches the new target. Target decrease, braking/ACC braking, manual gas, kickdown, pause or cruise cancellation restores the current selection. The setting is never written; Normal and High Power retain their own behavior. Later speed loss alone does not reactivate the exception. `CRUISE_ACCEL ON/OFF source=plugin`, `mode_source=cruise_acceleration` and CSV/status `cruise_acceleration_normal` distinguish this from a user change and kickdown. Disable using `[cruise] normal_acceleration=0`.
 - `CRUISE_GUARD source=cruise_load`, `cruise_guard_cap` and `cruise_guard_clamps` describe failed-upshift protection. `effective_brake` helps distinguish ACC braking from lack of power.
 - If hooks are not applied, check the log for missing or ambiguous instruction patterns and overlapping transmission plugins.
 - Compare a single accelerator press, double press/release and cruise at several speeds and loads. A selected top gear is not a success criterion; the car must still maintain speed. Adaptive cruise can slow down for traffic.

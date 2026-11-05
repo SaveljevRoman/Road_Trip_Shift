@@ -12,7 +12,7 @@ Every site is verified before transactional installation; failures roll back and
 
 The sites consist of seven cruise/adaptive comparisons, eleven mode-reader calls and two automatic gear-chooser calls. All reader calls must agree on their target and configuration variable; both chooser calls must agree on their target. Only unique matches in readable executable image sections are used. Missing, ambiguous, overlapping or inconsistent matches leave hooks disabled, before any patch is applied. This protects against writing into unrelated memory without imposing a game-version whitelist.
 
-Hook installation is transactional and shutdown restores patched instructions. Mode-reader hooks return temporary High Power only during plugin kickdown; UI, serialization and stored `g_adaptive_shift` remain unchanged. Chooser hooks may cap a repeated failed positive upshift, while stock downshifts, reverse, neutral and kickdown pass through. Future changes to gearbox instructions or object layout can require plugin changes; signature relocation tests do not prove compatibility with untested game builds.
+Hook installation is transactional and shutdown restores patched instructions. Mode-reader hooks return temporary High Power during plugin kickdown, or Normal for selected Economy during the explicit increased-cruise-target acceleration phase; UI, serialization and stored `g_adaptive_shift` remain unchanged. Chooser hooks may cap a repeated failed positive upshift, while stock downshifts, reverse, neutral and kickdown pass through. Future changes to gearbox instructions or object layout can require plugin changes; signature relocation tests do not prove compatibility with untested game builds.
 
 ## Input and setting provenance
 
@@ -25,6 +25,12 @@ The input channel requests `each_frame | no_value`. FRAME_START invalidates the 
 Keyboard full-gas behavior comes from native Smart Throttle. The plugin does not synthesize full analog throttle. A single press retains the selected mode.
 
 `CONFIG_MODE_INITIAL/CHANGED source=game_setting` observes the stored setting and does not attribute all changes to a person: profile loads can also change it. `KICKDOWN ON/OFF source=plugin` observes a separate temporary request. `mode_source` and `mode_override_changed` distinguish configured High Power from kickdown even when their values match. `mode_effective` is the value offered to hooks; `reader_calls`/`shadow_reads` measure actual use.
+
+## Economy cruise acceleration
+
+When an already active cruise target is increased with Economy selected, the plugin temporarily supplies Normal until speed reaches the new target. Target decrease, braking/ACC braking, manual gas, kickdown, pause or cruise cancellation restores the current selection. The setting is never written; Normal and High Power retain their own behavior. Later speed loss alone does not reactivate the exception. `CRUISE_ACCEL ON/OFF source=plugin`, `mode_source=cruise_acceleration` and CSV/status `cruise_acceleration_normal` distinguish this from a user change and kickdown. Disable using `[cruise] normal_acceleration=0`.
+
+The first valid target observation establishes a baseline and does not activate the exception. Atomic `cruise_normal` is consumed by native readers, which check the original selected value before returning Normal. Kickdown has priority; guard learning is reset/bypassed while this acceleration phase is active. No new road-speed, RPM or gear thresholds are used. Automated checks cover several arbitrary target speeds and SDK state through the native mode reader. Driving validation is pending.
 
 ## Cruise protection in 0.3.0
 

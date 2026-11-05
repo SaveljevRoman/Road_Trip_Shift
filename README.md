@@ -26,7 +26,8 @@ Close ATS, then copy `road_trip_shift.dll` into `path_to_game/bin/win_x64/plugin
 
 | Input | Transmission mode |
 | --- | --- |
-| Cruise control | Selected in game settings |
+| Cruise holding speed | Selected in game settings |
+| Increased cruise target with Economy selected | Temporary Normal until target is reached |
 | Single accelerator press | Selected mode |
 | Double keyboard accelerator press, holding the second press | Temporary High Power |
 | Release the keyboard accelerator | Current selected mode restored |
@@ -34,6 +35,8 @@ Close ATS, then copy `road_trip_shift.dll` into `path_to_game/bin/win_x64/plugin
 Kickdown follows the keyboard accelerator assigned in ATS. It reads the active profile's `controls.sii` and requires both that physical keyboard key and fresh SDK `truck.input.throttle` input. Gamepad buttons, triggers and pedals alone do not trigger plugin kickdown. There is no hardcoded W fallback. Keyboard acceleration uses the game's Smart Throttle. Startup, pause/resume, focus loss, timer restarts and vehicle changes require release before new presses. Cruise-generated effective throttle is not an input. The default double-tap interval is 300 ms, measured between physical key presses. Smart Throttle ramps up: each press must produce positive fresh SDK input within that configured interval; there is no fixed throttle-percentage threshold or separate confirmation timeout. A released, unconfirmed press cannot arm kickdown. If High Power is already selected, the request is still logged separately without changing its value.
 
 Automatic binding discovery uses the latest profile path in the current `game.log.txt`, supports local/Steam profiles, redirected Documents and `-homedir`. Missing or unsupported bindings disable keyboard kickdown while cruise behavior stays available. See the installation guide for supported keys and the optional `controls_file` override.
+
+When an already engaged cruise target is increased with Economy selected, the plugin temporarily supplies Normal to the gearbox for that acceleration. It restores the current selection at the new target, target decrease, braking, manual acceleration, kickdown or cruise cancellation. It does not write the game setting; Normal and High Power selections retain their own behavior. Set `[cruise] normal_acceleration=0` to disable this exception. `CRUISE_ACCEL source=plugin` distinguishes it from a user change and from kickdown.
 
 Cruise protection observes a failed higher gear under load and a subsequent stock downshift, then temporarily prevents another attempt at that higher gear. It preserves downshifts and resets on manual acceleration, kickdown or braking. It does not force top gear, guarantee an RPM or use a fixed road speed. Adaptive cruise still controls speed and braking around traffic.
 

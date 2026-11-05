@@ -1,6 +1,7 @@
 #include "kickdown.h"
 #include "keyboard_binding.h"
 #include "cruise_guard.h"
+#include "cruise_acceleration.h"
 #include <cassert>
 #include <cstdlib>
 #include <cstdio>
@@ -118,6 +119,31 @@ int main(int argc,char **argv) {
         assert(mode(m,false,true,high_power)==m);
         assert(mode(m,true,false,high_power)==m); // restoration is immediate, with no saved stale setting
     }
+    for(float target:{15.0f,30.0f,45.0f}) {
+        CruiseAcceleration acceleration;
+        acceleration.update(true,true,false,target,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+5,target,0,0);assert(acceleration.active);
+        assert(mode(economy_mode,true,false,high_power,acceleration.active)==normal_mode);
+        acceleration.update(true,true,false,target+5,target+2,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+5,target+5,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+5,target+3,0,0);assert(!acceleration.active); // later load is not a new target request
+        acceleration.update(true,true,false,target+10,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+10,target+5,0.1f,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+15,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+15,target+5,0,0.1f);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+20,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,true,target+20,target+5,1,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+25,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+24,target+5,0,0);assert(!acceleration.active);
+        acceleration.update(false,true,false,target+30,target+5,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+30,target+5,0,0);assert(!acceleration.active); // resume held target is not a new increase
+        acceleration.update(true,false,false,target+35,target+5,0,0);assert(!acceleration.active);
+        assert(mode(normal_mode,true,false,high_power,true)==normal_mode);
+        assert(mode(high_power,true,false,high_power,true)==high_power);
+        assert(mode(economy_mode,true,true,high_power,true)==high_power);
+        assert(mode(economy_mode,false,false,high_power,true)==economy_mode);
+    }
+    std::puts("PASS: Economy cruise target increase borrows Normal, restores at target, cancels on driver/target/scope changes and preserves High Power.");
     // A user-selected High Power setting is not evidence of plugin kickdown.
     assert(!std::strcmp(mode_source(true,false),"configured"));
     assert(!mode_override(high_power,true,false,high_power));
