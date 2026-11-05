@@ -4,7 +4,7 @@
 
 An experimental Windows x64 plugin for **American Truck Simulator — Road Trip: Ford**, addressing the automatic gearbox's different behavior under cruise control and manual acceleration.
 
-**Current build: 0.3.1 experimental**, tested on ATS 1.62.1.1 (Windows x64). Base kickdown/mode behavior was road-tested in 0.2.2. Keyboard accelerator input, signature resolution and the new cruise gear-hunting protection pass automated checks but still need validation in a new drive. This unofficial project is unaffiliated with SCS Software or Ford.
+**Current build: 0.3.2 experimental**, tested on ATS 1.62.1.1 (Windows x64). Base kickdown/mode behavior was road-tested in 0.2.2. Keyboard accelerator input, signature resolution and the new cruise gear-hunting protection pass automated checks but still need validation in a new drive. This unofficial project is unaffiliated with SCS Software or Ford.
 
 ## The problem this addresses
 
@@ -16,7 +16,7 @@ A second problem can appear under load: the gearbox upshifts, cannot sustain spe
 
 ## Download and install
 
-- **[Installation ZIP](release/road_trip_shift_0.3.1_win64.zip)** — DLL, optional settings, installer, EN/RU instructions and third-party notices.
+- **[Installation ZIP](release/road_trip_shift_0.3.2_win64.zip)** — DLL, optional settings, installer, EN/RU instructions and third-party notices.
 - [DLL alone](release/road_trip_shift.dll) · [SHA-256 checksums](release/SHA256SUMS.txt) · [Build details](release/BUILD-INFO.json)
 - **[Installation guide](docs/INSTALL.md)** · **[Установка на русском](docs/INSTALL_RU.md)**
 

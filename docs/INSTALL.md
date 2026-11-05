@@ -1,6 +1,6 @@
 # Installing Road Trip Shift
 
-Version **0.3.1 experimental**. This guide is also included in the installation ZIP. In the repository: [README](../README.md) · [Русская версия](INSTALL_RU.md).
+Version **0.3.2 experimental**. This guide is also included in the installation ZIP. In the repository: [README](../README.md) · [Русская версия](INSTALL_RU.md).
 
 ## Requirements
 

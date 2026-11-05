@@ -38,7 +38,7 @@ Without an EXE, logic/native harness checks still run, but the 20 game instructi
 | --- | --- |
 | `.build/tests/` | Logic/native/log-retention test executables and local fixtures |
 | `.build/package/` | Installation tree, installer, EN/RU guides, notices and manifest |
-| `.build/road_trip_shift_0.3.1_win64.zip` | Installation archive; omitted with `-SkipPackage` |
+| `.build/road_trip_shift_0.3.2_win64.zip` | Installation archive; omitted with `-SkipPackage` |
 | `release/` | Updated only with `-Publish`: DLL, ZIP, manifest and checksums |
 
 Update the checked-in prebuilt distribution:

@@ -30,7 +30,7 @@
 #include "native_hud.h"
 #include "performance.h"
 
-static const char *VERSION="0.3.1 experimental";
+static const char *VERSION="0.3.2 experimental";
 static roadtrip::Performance performance;
 static unsigned timing_sample_ms=10000;
 static std::atomic<unsigned> timing_hook_every{64};

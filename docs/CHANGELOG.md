@@ -2,9 +2,9 @@
 
 [Русская версия](CHANGELOG_RU.md) · [Implementation plan](IMPLEMENTATION_PLAN.md) · [SCS SDK references](SDK_REFERENCES.md)
 
-## Unreleased review snapshot — 2026-11-05
+## 0.3.2 experimental — test build, 2026-11-05
 
-Base: `main` at `93e3c34`. Selected changes were transferred from PR #1 (`d3c4087` and its uncommitted HUD/diagnostic work) into `fix/selected-features-from-main` in the primary checkout. The DLL still identifies as **0.3.1 experimental**; this is a local review/test snapshot, not a new public release.
+Base: `main` at `93e3c34`. Selected changes were transferred from PR #1 (`d3c4087` and its uncommitted HUD/diagnostic work) into `fix/selected-features-from-main` in the primary checkout. The DLL identifies as **0.3.2 experimental**: one test build combining the review fixes and the debug_01 fixes below. If driving validation passes, it goes to `main` through a pull request; it is not a public release yet. Package: `build.ps1 -GameExe ... -Publish` passed all tests, the 20-site check and public-file checks; DLL SHA-256 `12CDA5D940FBF79B44EEC96B87A3BC791CB73399EDE23BCB1DD1B3D9976A5707`, installed with `Install.ps1`. Hashes of 0.3.1 builds below are historical. Not driven yet.
 
 ### Added and changed
 
