@@ -18,6 +18,7 @@ Base: `main` at `93e3c34`. Selected changes were transferred from PR #1 (`d3c408
 - Retain automatic discovery of 20 hook sites without a version/hash whitelist, stock engine/shift maps, bounded 50 MiB logs and optional diagnostic disable.
 - Expand logic/native tests, HUD ABI/signature checks and GitHub Actions compilation/offline tests. Update EN/RU installation and driving checklists.
 - Add the canonical implementation plan and persistent project decisions. Archive the old dirty worktree and local recovery material outside the repository before removing obsolete local build/prototype/research copies; retain the compiler and IDE settings.
+- Add root `prompt.md` with a self-contained Claude review handoff, selected behavior, known unfixed issues, source entry points and verification commands.
 
 ### Validation and known issues
 
