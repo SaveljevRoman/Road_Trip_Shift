@@ -72,6 +72,8 @@ Event logs and CSV telemetry share a **50 MiB** default storage budget. Long ses
 
 Before contributing, read [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md). Keep them byte-identical and update them together. Local paths, logs, game assets, backups and toolchains stay out of Git; only deliberate distribution outputs belong in `release/`.
 
+[Development roadmap](docs/ROADMAP.md) · [План развития](docs/ROADMAP_RU.md)
+
 ## Credits
 
 Uses the official [SCS Telemetry & Input SDK](https://modding.scssoft.com/wiki/Documentation/Engine/SDK/Telemetry). Hook approaches were studied in [car_automatic_transmission](https://github.com/deppelover/car_automatic_transmission) and [DazDrive](https://github.com/DamienDutch/dazdrive). See [third-party provenance and notices](third_party/README.md); their prebuilt plugins are not included.

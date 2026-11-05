@@ -76,6 +76,8 @@ Road Trip Shift позволяет коробке использовать вы�
 
 Перед изменениями прочитайте [AGENTS.md](AGENTS.md) и [CLAUDE.md](CLAUDE.md). Они должны быть побайтово одинаковыми и меняться вместе. Личные пути, логи, игровые файлы, резервные копии и компилятор не публикуются; в `release/` помещаются только намеренно подготовленные файлы сборки.
 
+[План развития](docs/ROADMAP_RU.md) · [Development roadmap](docs/ROADMAP.md)
+
 ## Источники
 
 Используется официальный [SCS Telemetry & Input SDK](https://modding.scssoft.com/wiki/Documentation/Engine/SDK/Telemetry). Подходы к перехватам изучались по [car_automatic_transmission](https://github.com/deppelover/car_automatic_transmission) и [DazDrive](https://github.com/DamienDutch/dazdrive). [Происхождение и лицензии](third_party/README.md); готовые DLL этих проектов не включены.
