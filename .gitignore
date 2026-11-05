@@ -41,3 +41,8 @@
 !.env.example
 .vscode/
 .idea/
+
+# Shared, curated diagnostic summaries; raw debug material remains local.
+/debug/*
+!/debug/README.md
+!/debug/debug_[0-9][0-9]*.md

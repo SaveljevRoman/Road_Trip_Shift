@@ -8,6 +8,8 @@ Base: `main` at `93e3c34`. Selected changes were transferred from PR #1 (`d3c408
 
 ### Added and changed
 
+- Add versioned `debug/debug_XX.md` diagnostic handoffs, a README pointing to the latest report, and a full first report for the post-review Bronco drive. Publish curated findings for cross-machine/agent continuation, keep raw logs private, and provide a matching chat export. AGENTS/CLAUDE, project memory and navigation document this workflow; no runtime code changes accompany it.
+
 - Discover the keyboard accelerator binding from the active profile's `controls.sii`, including supported remappings, local/Steam profiles, redirected Documents and `-homedir`; no hardcoded W fallback.
 - Preserve the main double-tap/hold/release detector, analog pedal/trigger kickdown and pause/brake cancellation policy. Per-press SDK confirmation and the extra PR release-required latch are excluded; SDK confirmation remains deferred.
 - Economy cruise temporarily uses the current plugin Normal path to recover speed. Recovery starts beyond a **3 km/h deficit**, stays active inside the band and returns to Economy at the target. ACC braking and driver input cancel recovery; re-entry uses the same band. Temporary High Power has priority and does not overwrite the saved setting.

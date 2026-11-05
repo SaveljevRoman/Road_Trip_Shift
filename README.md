@@ -81,6 +81,8 @@ Before contributing, read [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md). Kee
 
 [Changelog and review starting points](docs/CHANGELOG.md) · [Official SCS SDK references](docs/SDK_REFERENCES.md)
 
+[Diagnostic reports and latest handoff](debug/README.md)
+
 ## Mode notification and engine diagnostics
 
 The PR test build includes a [native HUD mode notification](docs/MODE_NOTICE.md): grey Off, green Eco, blue Normal and red High Power on actual setting changes, approximately 2.5 seconds. It uses the game's own notification system and needs no extra application. Native address/ABI checks pass; appearance and timing still require in-game validation. Existing INI files need no edits.
