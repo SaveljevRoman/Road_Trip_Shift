@@ -36,13 +36,21 @@ static bool paused=true,known_ford=false,patched=false,enabled=true;
 static std::atomic<unsigned char> scope{0};
 static std::atomic<unsigned char> kick{0};
 static std::atomic<unsigned long long> reader_calls{0},shadow_reads{0};
+// Capture decisions without doing file I/O or reading SDK state in native hooks.
+static std::atomic<unsigned long long> chooser_calls[2]{};
+static std::atomic<uint64_t> chooser_decision[2]{};
+static unsigned long long reported_choices[2]={};
+static uint64_t reported_decision[2]={};
+static ULONGLONG last_choice_log[2]={};
 static std::atomic<int> cruise_cap{0};
 static std::atomic<unsigned long long> cruise_clamps{0};
 static roadtrip::CruiseGuard cruise_guard;
 static bool cruise_guard_enabled=true;
 static_assert(sizeof(scope)==1,"Native condition stub requires a one-byte atomic flag");
 static roadtrip::AcceleratorInput accelerator;
-static bool pedal_sample=false,observed_input=false;
+static bool pedal_sample=false,observed_input=false,raw_keyboard_held=false;
+static const char *input_gate="inactive",*reported_gate="";
+static int reported_gear=0;
 static unsigned double_ms=300,sample_ms=200;
 static float pedal=0,effective=0,rpm=0,speed=0,cruise=0,brake=0,effective_brake=0,power_mode=roadtrip::high_power;
 static int gear=0;
@@ -107,11 +115,15 @@ static bool refresh_keyboard_binding(ULONGLONG now) {
             std::wstring(profile.id.begin(),profile.id.end())+L"\\controls.sii";
         path=selected_controls;
     }
-    auto next=roadtrip::parse_keyboard_binding(read_input_file(path));
+    auto text=read_input_file(path);
+    auto next=roadtrip::parse_keyboard_binding(text);
     bool changed=next.valid!=keyboard_binding.valid || next.scans!=keyboard_binding.scans;
     keyboard_binding=next;
     if(changed || !binding_reported) {
-        log("KEYBOARD_BINDING source=controls_sii ready=%d keys=%u",next.valid,(unsigned)next.scans.size());binding_reported=true;
+        std::string scans;
+        for(unsigned scan:next.scans){char code[12];snprintf(code,sizeof code,"%s%04X",scans.empty()?"":",",scan);scans+=code;}
+        log("KEYBOARD_BINDING source=controls_sii ready=%d keys=%u scans=%s file_read=%d",
+            next.valid,(unsigned)next.scans.size(),scans.empty()?"none":scans.c_str(),!text.empty());binding_reported=true;
     }
     return changed;
 }
@@ -170,7 +182,7 @@ static void init_paths() {
         wchar_t logs[MAX_PATH];swprintf(logs,MAX_PATH,L"%ls\\logs",dir);
         SYSTEMTIME t;GetLocalTime(&t);wchar_t prefix[64];
         swprintf(prefix,64,L"%04u%02u%02u_%02u%02u%02u_%lu",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond,GetCurrentProcessId());
-        const char *header="tick_ms,vehicle,paused,foreground,scope,kickdown,mode_config,mode_effective,input_down,input_throttle,effective_throttle,cruise_kmh,speed_kmh,rpm,gear,reader_calls,shadow_reads,mode_source,mode_override_changed,cruise_guard_cap,cruise_guard_clamps,effective_brake\n";
+        const char *header="tick_ms,vehicle,paused,foreground,scope,kickdown,mode_config,mode_effective,input_down,input_throttle,effective_throttle,cruise_kmh,speed_kmh,rpm,gear,reader_calls,shadow_reads,mode_source,mode_override_changed,cruise_guard_cap,cruise_guard_clamps,effective_brake,keyboard_held,input_sample_valid,input_brake,tap_armed,tap_blocked,tap_confirmed,input_gate\n";
         disk_log.begin(logs,prefix,header,(size_t)log_quota_mb*1024*1024);
     }
 }
@@ -187,12 +199,16 @@ static float read_mode(void *var) {
     if(scoped && kicked)++shadow_reads;
     return roadtrip::mode(original_reader(var),scoped,kicked,power_mode);
 }
-static int choose_gear(void *self) {
+static int choose_gear(void *self,unsigned path=0) {
     int stock=original_chooser(self);
     int chosen=roadtrip::guard_choice(stock,cruise_cap.load(),scope!=0,kick!=0);
     if(chosen!=stock)++cruise_clamps;
+    chooser_decision[path]=((uint64_t)(uint32_t)stock<<32)|(uint32_t)chosen;
+    ++chooser_calls[path];
     return chosen;
 }
+static int choose_step_gear(void *self){return choose_gear(self,0);}
+static int choose_direct_gear(void *self){return choose_gear(self,1);}
 static unsigned char *reserve_thunks(uintptr_t around) {
     SYSTEM_INFO si;GetSystemInfo(&si);uintptr_t gran=si.dwAllocationGranularity;
     for(uintptr_t d=gran;d<0x40000000;d+=gran) {
@@ -251,8 +267,8 @@ static bool install_hooks() {
     void *reader_thunk=abs_jump((void*)&read_mode);
     for(auto r:native_sites.reads)if(!add_call(r,5,reader_thunk))return false;
     for(auto r:native_sites.compares)if(!add_call(r,7,compare_stub((unsigned char*)(base+r))))return false;
-    void *chooser_thunk=abs_jump((void*)&choose_gear);
-    for(auto r:native_sites.choices)if(!add_call(r,5,chooser_thunk))return false;
+    if(!add_call(native_sites.choices[0],5,abs_jump((void*)&choose_step_gear)))return false;
+    if(!add_call(native_sites.choices[1],5,abs_jump((void*)&choose_direct_gear)))return false;
     DWORD old;if(!VirtualProtect(thunks,4096,PAGE_EXECUTE_READ,&old))return false;
     FlushInstructionCache(GetCurrentProcess(),thunks,4096);
     HMODULE pinned=nullptr;
@@ -264,7 +280,7 @@ static bool install_hooks() {
     log("HOOKS READY: %u sites resolved by instruction patterns; no version or EXE hash restriction",patch_count);return true;
 }
 // Input held across a cancellation must be released before it counts as a press.
-static void cancel_input() {accelerator.cancel();pedal_sample=false;observed_input=false;}
+static void cancel_input() {accelerator.cancel();pedal_sample=false;observed_input=false;reported_gate="";}
 static void SCSAPIFUNC configuration(scs_event_t,const void *info,scs_context_t) {
     auto c=(const scs_telemetry_configuration_t*)info;if(!c)return;
     // Log identifiers so an SDK change is visible instead of silently treating a truck as a car.
@@ -318,21 +334,45 @@ static void SCSAPIFUNC frame_start(scs_event_t,const void *info,scs_context_t) {
     }
 }
 static void process_input(ULONGLONG now,bool keyboard_held) {
+    raw_keyboard_held=keyboard_held;
     bool allowed=scope && foreground && brake<0.1f && pedal_sample && keyboard_binding.valid;
     bool next=accelerator.update(now,pedal,keyboard_held,allowed,double_ms);
+    input_gate=!scope?"inactive":!foreground?"focus_loss":brake>=0.1f?"brake":
+        !pedal_sample?"input_unavailable":!keyboard_binding.valid?"keyboard_binding_unavailable":accelerator.reason;
+    if(scope && (keyboard_held || observed_input || next) && strcmp(reported_gate,input_gate)) {
+        log("INPUT_GATE reason=%s key_held=%d sdk_valid=%d input=%.4f brake=%.4f armed=%d blocked=%d confirmed=%d",
+            input_gate,keyboard_held,pedal_sample,pedal,brake,accelerator.taps.armed,accelerator.taps.blocked,accelerator.confirmed);
+    }
+    reported_gate=input_gate;
     bool down=allowed && accelerator.down;
     if(down!=observed_input)log("THROTTLE %s source=game_input input=%.3f effective=%.3f",down?"DOWN":"UP",pedal,effective);
     observed_input=down;
     if(down)reset_cruise_guard("manual_gas");
-    const char *reason=next?"keyboard_accelerator_double":!scope?"inactive":!foreground?"focus_loss":
-        brake>=0.1f?"brake":!pedal_sample?"input_unavailable":!keyboard_binding.valid?"keyboard_binding_unavailable":"input_release";
+    const char *reason=next?"keyboard_accelerator_double":input_gate;
     set_kickdown(next,reason);
+}
+static void log_gear_decisions(ULONGLONG now) {
+    if(!logging_enabled || !scope)return;
+    if(gear!=reported_gear) {
+        log("GEAR_CHANGED source=game_telemetry old=%d new=%d speed_kmh=%.2f rpm=%.1f mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f brake=%.4f guard_cap=%d",
+            reported_gear,gear,speed*3.6f,rpm,base_mode,(unsigned)kick.load(),cruise*3.6f,pedal,effective,std::max(brake,effective_brake),cruise_cap.load());
+        reported_gear=gear;
+    }
+    for(unsigned path=0;path<2;++path) {
+        auto calls=chooser_calls[path].load();auto decision=chooser_decision[path].load();
+        if(calls==reported_choices[path])continue;
+        if(decision==reported_decision[path] && now-last_choice_log[path]<1500)continue;
+        log("GEAR_CHOICE source=game_logic caller=%s calls=%llu stock_candidate=%d plugin_return=%d observed_gear=%d speed_kmh=%.2f rpm=%.1f mode_config=%.5f kickdown=%u cruise_kmh=%.2f input=%.4f effective=%.4f guard_cap=%d",
+            path?"direct":"adjacent_limited",calls,(int32_t)(decision>>32),(int32_t)decision,gear,speed*3.6f,rpm,base_mode,(unsigned)kick.load(),cruise*3.6f,pedal,effective,cruise_cap.load());
+        reported_choices[path]=calls;reported_decision[path]=decision;last_choice_log[path]=now;
+    }
 }
 static void SCSAPIFUNC frame_end(scs_event_t,const void*,scs_context_t) {
     ULONGLONG now=GetTickCount64();
     refresh_scope_and_focus();
     if(scope && foreground && refresh_keyboard_binding(now))cancel_input();
     process_input(now,keyboard_accelerator_held());
+    log_gear_decisions(now);
     roadtrip::CruiseSample load;
     load.eligible=cruise_guard_enabled && scope;load.kickdown=kick!=0;
     load.pedal=foreground && pedal_sample?pedal:0;load.brake=std::max(brake,effective_brake);load.speed=speed;
@@ -348,9 +388,9 @@ static void SCSAPIFUNC frame_end(scs_event_t,const void*,scs_context_t) {
     const char *source=mode_seen?roadtrip::mode_source(scope!=0,kick!=0):"unknown";
     bool overridden=mode_seen && roadtrip::mode_override(base_mode,scope!=0,kick!=0,power_mode);
     bool held=pedal_sample && accelerator.down;
-    char row[1024];snprintf(row,sizeof row,"%llu,%s,%d,%d,%u,%u,%.5f,%.5f,%d,%.4f,%.4f,%.3f,%.3f,%.1f,%d,%llu,%llu,%s,%d,%d,%llu,%.4f\n",(unsigned long long)now,vehicle,paused,foreground,(unsigned)scope.load(),(unsigned)kick.load(),base_mode,current,held,pedal,effective,cruise*3.6f,speed*3.6f,rpm,gear,reader_calls.load(),shadow_reads.load(),source,overridden,cruise_cap.load(),cruise_clamps.load(),effective_brake);
+    char row[1024];snprintf(row,sizeof row,"%llu,%s,%d,%d,%u,%u,%.5f,%.5f,%d,%.4f,%.4f,%.3f,%.3f,%.1f,%d,%llu,%llu,%s,%d,%d,%llu,%.4f,%d,%d,%.4f,%d,%d,%d,%s\n",(unsigned long long)now,vehicle,paused,foreground,(unsigned)scope.load(),(unsigned)kick.load(),base_mode,current,held,pedal,effective,cruise*3.6f,speed*3.6f,rpm,gear,reader_calls.load(),shadow_reads.load(),source,overridden,cruise_cap.load(),cruise_clamps.load(),effective_brake,raw_keyboard_held,pedal_sample,brake,accelerator.taps.armed,accelerator.taps.blocked,accelerator.confirmed,input_gate);
     disk_log.sample(row);++sample_count;if(sample_count%5==0)disk_log.flush();
-    FILE *s=_wfopen(status_path,L"w");if(s){fprintf(s,"{\n\"version\":\"%s\",\"tick_ms\":%llu,\"hooks_ready\":%s,\"vehicle\":\"%s\",\"vehicle_supported\":%s,\"scope\":%s,\"paused\":%s,\"kickdown\":%s,\"mode_config\":%.5f,\"mode_config_known\":%s,\"mode_source\":\"%s\",\"mode_override_changed\":%s,\"mode_effective\":%.5f,\"speed_kmh\":%.2f,\"rpm\":%.1f,\"gear\":%d,\"keyboard_binding_ready\":%s,\n\"input_sample_valid\":%s,\n\"input_throttle\":%.4f,\"effective_throttle\":%.4f,\"cruise_kmh\":%.2f,\"reader_calls\":%llu,\"shadow_reads\":%llu,\"cruise_guard_cap\":%d,\"cruise_guard_clamps\":%llu,\"effective_brake\":%.4f\n}\n",VERSION,(unsigned long long)now,patched?"true":"false",vehicle,known_ford?"true":"false",scope?"true":"false",paused?"true":"false",kick?"true":"false",base_mode,mode_seen?"true":"false",source,overridden?"true":"false",current,speed*3.6f,rpm,gear,keyboard_binding.valid?"true":"false",pedal_sample?"true":"false",pedal,effective,cruise*3.6f,reader_calls.load(),shadow_reads.load(),cruise_cap.load(),cruise_clamps.load(),effective_brake);fclose(s);}
+    FILE *s=_wfopen(status_path,L"w");if(s){fprintf(s,"{\n\"version\":\"%s\",\"tick_ms\":%llu,\"hooks_ready\":%s,\"vehicle\":\"%s\",\"vehicle_supported\":%s,\"scope\":%s,\"paused\":%s,\"kickdown\":%s,\"mode_config\":%.5f,\"mode_config_known\":%s,\"mode_source\":\"%s\",\"mode_override_changed\":%s,\"mode_effective\":%.5f,\"speed_kmh\":%.2f,\"rpm\":%.1f,\"gear\":%d,\"keyboard_binding_ready\":%s,\n\"input_sample_valid\":%s,\n\"input_throttle\":%.4f,\"effective_throttle\":%.4f,\"cruise_kmh\":%.2f,\"reader_calls\":%llu,\"shadow_reads\":%llu,\"cruise_guard_cap\":%d,\"cruise_guard_clamps\":%llu,\"effective_brake\":%.4f,\n\"keyboard_held\":%s,\"input_brake\":%.4f,\"input_gate\":\"%s\",\"tap_armed\":%s,\"tap_blocked\":%s,\"tap_confirmed\":%s\n}\n",VERSION,(unsigned long long)now,patched?"true":"false",vehicle,known_ford?"true":"false",scope?"true":"false",paused?"true":"false",kick?"true":"false",base_mode,mode_seen?"true":"false",source,overridden?"true":"false",current,speed*3.6f,rpm,gear,keyboard_binding.valid?"true":"false",pedal_sample?"true":"false",pedal,effective,cruise*3.6f,reader_calls.load(),shadow_reads.load(),cruise_cap.load(),cruise_clamps.load(),effective_brake,raw_keyboard_held?"true":"false",brake,input_gate,accelerator.taps.armed?"true":"false",accelerator.taps.blocked?"true":"false",accelerator.confirmed?"true":"false");fclose(s);}
 }
 extern "C" __declspec(dllexport) SCSAPI_RESULT scs_telemetry_init(scs_u32_t version,const scs_telemetry_init_params_t *params) {
     if(SCS_GET_MAJOR_VERSION(version)!=1 || !params)return SCS_RESULT_unsupported;

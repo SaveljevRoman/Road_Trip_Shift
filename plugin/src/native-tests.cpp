@@ -165,6 +165,17 @@ int wmain(int argc,wchar_t **argv) {
     input(20680,1,0);assert(!kick); // controller gas remains held after key release
     keyboard_binding.valid=false;input(20690,1,1);assert(!kick);keyboard_binding.valid=true;
     input(20700,1,1);assert(!kick);input(20710,0,0);input(20720,1,1);assert(!kick);
+    // Replay the low initial SDK values seen with in-game Smart Throttle.
+    logged_events[0]=0;cancel_input();input(20800,0,0);
+    input(20810,0,1);assert(!kick && !accelerator.taps.blocked);
+    input(20830,0.03f,1);assert(!kick);
+    input(20850,0.08f,0);assert(!kick);
+    input(20900,0,1);assert(!kick);
+    input(20920,0.03f,1);assert(kick);
+    input(20940,0.08f,1);assert(kick);
+    input(20960,0.2f,0);assert(!kick);
+    assert(strstr(logged_events,"INPUT_GATE reason=awaiting_sdk_throttle"));
+    assert(strstr(logged_events,"confirmed=1"));
     pedal_sample=false;pedal=1;frame_start(0,nullptr,nullptr);assert(!pedal_sample);
     cancel_input();pedal=effective=0;
     std::puts("PASS: mapped keyboard accelerator, controller exclusion, full pause/resume, timer/vehicle/focus cancellation, missing samples, brake and cruise exclusion.");
@@ -201,6 +212,16 @@ int wmain(int argc,wchar_t **argv) {
     stock_choice=10;kick=1;assert(choose_gear(&stock_choice)==10);
     scope=0;kick=0;assert(choose_gear(&stock_choice)==10);
     scope=1;assert(read_mode(&setting)==setting); // cruise hold does not select a different transmission mode
+    logged_events[0]=0;gear=4;stock_choice=9;kick=0;cruise_cap=0;
+    auto count_step=chooser_calls[0].load(),count_direct=chooser_calls[1].load();
+    assert(choose_step_gear(&stock_choice)==9);assert(choose_direct_gear(&stock_choice)==9);
+    assert(chooser_calls[0]==count_step+1 && chooser_calls[1]==count_direct+1);
+    log_gear_decisions(22000);
+    assert(strstr(logged_events,"caller=adjacent_limited"));assert(strstr(logged_events,"caller=direct"));
+    assert(strstr(logged_events,"stock_candidate=9 plugin_return=9 observed_gear=4"));
+    assert(strstr(logged_events,"GEAR_CHANGED source=game_telemetry"));
+    logging_enabled=false;logged_events[0]=0;log_gear_decisions(24000);assert(!logged_events[0]);logging_enabled=true;
+    std::puts("PASS: unchanged native chooser results, separate adjacent/direct path diagnostics and observed gear changes.");
     reset_cruise_guard("test_complete");original_chooser=nullptr;
     std::puts("PASS: native chooser ceiling preserves stock downshifts, neutral, reverse and kickdown, without changing mode.");
 

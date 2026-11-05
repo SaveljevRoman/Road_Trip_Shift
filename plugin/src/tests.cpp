@@ -52,8 +52,35 @@ int main(int argc,char **argv) {
     assert(!action.update(5400,1,true,true,300));assert(!action.update(5410,1,false,true,300));
     assert(action.update(5420,1,true,true,300)); // keyboard presses still work while a controller holds gas
     assert(!action.update(5430,1,false,true,300)); // key release restores mode even with controller gas held
-    assert(!action.update(5440,0,true,true,300)); // keyboard key that is not currently producing game gas
-    assert(!action.update(5450,1,true,true,300));assert(!key(5460,false));assert(!key(5470,true));
+    assert(!action.update(5440,0,true,true,300)); // wait for Smart Throttle, do not invent gas
+    assert(!action.update(5800,0,true,true,300)); // no confirmation: block until release
+    assert(!action.update(5810,1,true,true,300));assert(!key(5820,false));assert(!key(5830,true));
+    // Real Smart Throttle starts below the old 15% threshold. Both strokes
+    // must count at their physical edges even while the SDK value ramps.
+    action.cancel();assert(!key(6000,false));
+    assert(!action.update(6010,0,true,true,300));assert(!action.taps.blocked);
+    assert(!action.update(6020,0.008f,true,true,300));
+    assert(!action.update(6040,0.025f,true,true,300));
+    assert(!action.update(6080,0.10f,false,true,300));
+    assert(!action.update(6150,0,true,true,300)); // second stroke awaits confirmation
+    assert(action.update(6170,0.025f,true,true,300));
+    assert(action.update(6300,0.5f,true,true,300));
+    assert(!action.update(6310,0.4f,false,true,300)); // restore at the physical release
+    // An unconfirmed first stroke cannot be combined with a later valid press.
+    action.cancel();assert(!key(6400,false));
+    assert(!action.update(6410,0,true,true,300));assert(!action.update(6430,0,false,true,300));
+    assert(!action.update(6450,0.5f,true,true,300));
+    // One held ramp is still one press; falling SDK input cannot leave kickdown on.
+    assert(!action.update(6500,0.8f,true,true,300));assert(!key(6510,false));assert(key(6520,true));
+    assert(!action.update(6530,0,true,true,300));assert(!key(6540,true));
+    assert(!key(6550,false));assert(!key(6560,true));
+    action.cancel();assert(!action.update(7000,0,false,true,600));
+    assert(!action.update(7010,0,true,true,600));
+    assert(!action.update(7410,0.000001f,true,true,600)); // positive input, no fixed percentage or 250ms timeout
+    assert(!action.update(7420,0,false,true,600));
+    assert(action.update(7450,0.000001f,true,true,600));
+    assert(!action.update(7460,0,false,true,600));
+    std::puts("PASS: Smart Throttle ramp/confirmation, physical double-tap timing, unconfirmed tap rejection and confirmation timeout.");
     std::puts("PASS: keyboard-only accelerator, controller exclusion, key release, repeated cancellation, invalid input and timeout.");
     auto binding=parse_keyboard_binding("mix dforward `keyboard.uarrow?0 | keyboard.a?0 | joy2.b5?0`\n");
     assert(binding.valid && binding.scans==std::vector<unsigned>({0xe048,0x1e}));

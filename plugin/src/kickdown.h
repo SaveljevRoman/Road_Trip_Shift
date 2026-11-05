@@ -35,15 +35,36 @@ struct Kickdown {
 // action. Controller throttle alone never becomes a keyboard double press.
 struct AcceleratorInput {
     Kickdown taps;
-    bool down=false;
+    bool down=false,confirmed=false;
+    uint64_t press_time=0;
+    const char *reason="release_required";
     AcceleratorInput() { cancel(); }
-    void cancel() { taps.cancel(true); down=false; }
+    void cancel() { taps.cancel(true); down=false;confirmed=false;reason="release_required"; }
     bool update(uint64_t now,float value,bool keyboard_held,bool allowed,unsigned interval) {
-        if(!allowed || !std::isfinite(value) || value<0 || value>1 || (keyboard_held && value<0.15f)) {
+        if(!allowed || !std::isfinite(value) || value<0 || value>1) {
             cancel();return false;
         }
+        // Smart Throttle ramps up over several frames. Count physical edges at
+        // their actual times, then confirm each stroke with fresh SDK input.
+        // A low first frame must not block the entire press until key release.
+        if(keyboard_held && !taps.down) {press_time=now;confirmed=false;}
         down=keyboard_held;
-        return taps.update(now,down,true,interval);
+        bool requested=taps.update(now,down,true,interval);
+        if(taps.blocked){reason="release_required";return false;}
+        if(!down) {
+            // An unconfirmed tap cannot arm a later press (e.g. stale binding).
+            if(!confirmed)taps.cancel();
+            confirmed=false;reason="released";return false;
+        }
+        if(value>0)confirmed=true;
+        if(!confirmed) {
+            if(now<press_time || now-press_time>interval) {cancel();reason="sdk_confirmation_timeout";}
+            else reason="awaiting_sdk_throttle";
+            return false;
+        }
+        if(value<=0){cancel();reason="sdk_throttle_lost";return false;}
+        reason=requested?"keyboard_accelerator_double":"single_press";
+        return requested;
     }
 };
 inline float mode(float original, bool scoped, bool kick, float power) {

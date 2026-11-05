@@ -1,12 +1,12 @@
 {
   "version": "0.3.1",
   "channel": "experimental",
-  "built_at_utc": "2026-11-04T18:41:11Z",
+  "built_at_utc": "2026-11-05T05:03:34Z",
   "tested_game": "American Truck Simulator 1.62.1.1 Windows x64",
   "tested_exe_sha256": "28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7",
   "address_resolution": "instruction_signatures",
   "version_hash_restriction": false,
-  "dll_sha256": "F5E33CD08CDBD664A206045E9070261DA9F1175507ACC72CDA69E3B6122149A6",
+  "dll_sha256": "BFB0BA09642705943250F587FF8359775011C28D13242B62784693EE9C486DF7",
   "native_image_checked": true,
   "native_sites": 20,
   "checks": [
@@ -14,6 +14,8 @@
     "SDK vehicle scope and mode provenance",
     "Configured keyboard accelerator, controller exclusion and fresh per-frame input",
     "Full pause/resume, timer/vehicle/focus cancellation and release gating",
+    "Smart Throttle ramp confirmation and unconfirmed stroke rejection",
+    "Native candidate and actual gear diagnostics",
     "Missing/ambiguous and relocated signature resolution",
     "Native condition and chooser execution",
     "Isolated patch restoration",
