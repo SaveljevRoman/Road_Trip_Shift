@@ -126,7 +126,7 @@ int main(int argc,char **argv) {
         assert(mode(economy_mode,true,false,high_power,acceleration.active)==normal_mode);
         acceleration.update(true,true,false,target+5,target+2,0,0);assert(acceleration.active);
         acceleration.update(true,true,false,target+5,target+5,0,0);assert(!acceleration.active);
-        acceleration.update(true,true,false,target+5,target+3,0,0);assert(!acceleration.active); // later load is not a new target request
+        acceleration.update(true,true,false,target+5,target+3,0,0);assert(acceleration.active); // recover a later speed deficit without any target change
         acceleration.update(true,true,false,target+10,target+5,0,0);assert(acceleration.active);
         acceleration.update(true,true,false,target+10,target+5,0.1f,0);assert(!acceleration.active);
         acceleration.update(true,true,false,target+15,target+5,0,0);assert(acceleration.active);
@@ -134,16 +134,24 @@ int main(int argc,char **argv) {
         acceleration.update(true,true,false,target+20,target+5,0,0);assert(acceleration.active);
         acceleration.update(true,true,true,target+20,target+5,1,0);assert(!acceleration.active);
         acceleration.update(true,true,false,target+25,target+5,0,0);assert(acceleration.active);
-        acceleration.update(true,true,false,target+24,target+5,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+24,target+5,0,0);assert(acceleration.active); // reduced target is still above actual speed
         acceleration.update(false,true,false,target+30,target+5,0,0);assert(!acceleration.active);
-        acceleration.update(true,true,false,target+30,target+5,0,0);assert(!acceleration.active); // resume held target is not a new increase
+        acceleration.update(true,true,false,target+30,target+5,0,0);assert(acceleration.active); // recover after resume with fresh valid state
         acceleration.update(true,false,false,target+35,target+5,0,0);assert(!acceleration.active);
+        acceleration.reset();
+        acceleration.update(true,true,false,target,target-1,0,0);assert(acceleration.active); // cruise already on below target
+        acceleration.update(true,true,false,target,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target,target+1,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target,target-0.0001f,0,0);assert(acceleration.active); // no fixed error threshold
+        acceleration.update(true,true,false,target,target-1,0.2f,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target,target-1,0,0.2f);assert(!acceleration.active);
+        acceleration.update(true,true,false,target-2,target-1,0,0);assert(!acceleration.active); // lower target is now satisfied
         assert(mode(normal_mode,true,false,high_power,true)==normal_mode);
         assert(mode(high_power,true,false,high_power,true)==high_power);
         assert(mode(economy_mode,true,true,high_power,true)==high_power);
         assert(mode(economy_mode,false,false,high_power,true)==economy_mode);
     }
-    std::puts("PASS: Economy cruise target increase borrows Normal, restores at target, cancels on driver/target/scope changes and preserves High Power.");
+    std::puts("PASS: Economy cruise recovers any speed deficit through existing Normal, restores at target and preserves manual input/High Power.");
     // A user-selected High Power setting is not evidence of plugin kickdown.
     assert(!std::strcmp(mode_source(true,false),"configured"));
     assert(!mode_override(high_power,true,false,high_power));

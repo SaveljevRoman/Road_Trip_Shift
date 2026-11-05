@@ -154,12 +154,11 @@ static void set_cruise_normal(bool next,const char *reason) {
     float before=roadtrip::mode(base_mode,scope!=0,kick!=0,power_mode,previous);
     cruise_normal=next;
     float after=roadtrip::mode(base_mode,scope!=0,kick!=0,power_mode,next);
-    reset_cruise_guard("cruise_acceleration_changed");
     log("CRUISE_ACCEL %s source=plugin reason=%s mode_config=%.5f effective_before=%.5f effective_after=%.5f target_kmh=%.2f speed_kmh=%.2f",
         next?"ON":"OFF",reason,base_mode,before,after,cruise*3.6f,speed*3.6f);
 }
 static void update_cruise_acceleration() {
-    cruise_acceleration.update(cruise_normal_enabled && scope && pedal_sample,
+    cruise_acceleration.update(cruise_normal_enabled && scope && pedal_sample && !raw_keyboard_held,
         roadtrip::economy_selected(base_mode),kick!=0,cruise,speed,pedal,std::max(brake,effective_brake));
     set_cruise_normal(cruise_acceleration.active,cruise_acceleration.reason);
 }
@@ -254,7 +253,7 @@ static float read_mode(void *var) {
 }
 static int choose_gear(void *self,unsigned path=0) {
     int stock=original_chooser(self);
-    int chosen=roadtrip::guard_choice(stock,cruise_cap.load(),scope!=0,kick!=0 || cruise_normal!=0,guard_current_gear.load());
+    int chosen=roadtrip::guard_choice(stock,cruise_cap.load(),scope!=0,kick!=0,guard_current_gear.load());
     if(chosen!=stock)++cruise_clamps;
     chooser_decision[path]=((uint64_t)(uint32_t)stock<<32)|(uint32_t)chosen;
     ++chooser_calls[path];
@@ -427,7 +426,7 @@ static void SCSAPIFUNC frame_end(scs_event_t,const void*,scs_context_t) {
     update_cruise_acceleration();
     log_gear_decisions(now);
     roadtrip::CruiseSample load;
-    load.eligible=cruise_guard_enabled && scope;load.kickdown=kick!=0 || cruise_normal!=0;
+    load.eligible=cruise_guard_enabled && scope;load.kickdown=kick!=0;
     load.pedal=foreground && pedal_sample?pedal:0;load.brake=std::max(brake,effective_brake);load.speed=speed;
     load.target=cruise;load.throttle=effective;load.gear=gear;
     int old_cap=cruise_cap.load();cruise_guard.update(now,load);cruise_cap=cruise_guard.cap;

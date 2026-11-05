@@ -255,12 +255,25 @@ int wmain(int argc,wchar_t **argv) {
     cruise=30;update_cruise_acceleration();assert(cruise_normal);
     speed=30;update_cruise_acceleration();assert(!cruise_normal && setting==10 && read_mode(&setting)==10);
     assert(strstr(logged_events,"reason=target_reached"));
+    speed=29;update_cruise_acceleration();assert(cruise_normal && setting==10 && read_mode(&setting)==3);
+    assert(strstr(logged_events,"reason=speed_deficit"));
+    // This is the current plugin Normal path, including the same cruise guard,
+    // rather than a bypass of existing Normal behavior.
+    auto saved_chooser=original_chooser;auto saved_clamps=cruise_clamps.load();
+    original_chooser=fake_chooser;int recovery_candidate=10;cruise_cap=9;
+    assert(choose_gear(&recovery_candidate)==9);
+    original_chooser=saved_chooser;cruise_clamps=saved_clamps;cruise_cap=0;
+    pedal=0.2f;update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
+    pedal=0;update_cruise_acceleration();assert(cruise_normal && read_mode(&setting)==3);
+    raw_keyboard_held=true;update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
+    raw_keyboard_held=false;update_cruise_acceleration();assert(cruise_normal && read_mode(&setting)==3);
+    speed=30;update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
     setting=roadtrip::high_power;refresh_config_mode();cruise=35;update_cruise_acceleration();
     assert(!cruise_normal && read_mode(&setting)==roadtrip::high_power);
     setting=10;refresh_config_mode();cruise=40;update_cruise_acceleration();assert(cruise_normal);
     cancel_input();assert(!cruise_normal && read_mode(&setting)==10);
     cruise=speed=0;
-    std::puts("PASS: cruise-target SDK state reaches the native Normal reader without writing Economy, restores at target and preserves kickdown/High Power.");
+    std::puts("PASS: target increase and later speed loss reach the current Normal reader/guard path, preserve manual Economy and never write the selection.");
 
     original_chooser=fake_chooser;int stock_choice=10;scope=1;kick=0;cruise_cap=9;
     assert(choose_gear(&stock_choice)==9);assert(cruise_clamps==1);

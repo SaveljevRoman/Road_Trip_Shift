@@ -113,7 +113,7 @@ $info=[ordered]@{
     native_sites=20
     checks=@('Input/mode and cruise-guard logic','SDK vehicle scope and mode provenance','Configured keyboard accelerator, controller exclusion and fresh per-frame input',
         'Full pause/resume, timer/vehicle/focus cancellation and release gating',
-        'Smart Throttle ramp confirmation and unconfirmed stroke rejection','Native candidate and actual gear diagnostics','Multi-frame physical release between taps','Economy increased cruise target borrows Normal and restores selection',
+        'Smart Throttle ramp confirmation and unconfirmed stroke rejection','Native candidate and actual gear diagnostics','Multi-frame physical release between taps','Economy cruise speed recovery uses current Normal hooks and guard, then restores selection',
         'Unpublished hook-page cleanup and tracked published retention','Process memory and handle sampling',
         'Missing/ambiguous and relocated signature resolution','Native condition and chooser execution','Isolated patch restoration','Telemetry/log lifecycle','Bounded log rotation and retention')
     driving_validation='0.2.2 base behavior road-tested; keyboard accelerator input, signature resolution and cruise guard road validation pending'

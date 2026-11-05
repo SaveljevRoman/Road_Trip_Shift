@@ -8,7 +8,7 @@ Complete the [Bronco driving checks](TESTING_BRONCO.md) for PR #1: keyboard kick
 
 ## Current driving follow-up
 
-Economy now temporarily borrows Normal for an increased active cruise target and restores the selection afterwards; High Power acceleration remains native. This is implemented in the test branch and awaits driving validation. The owner deferred pause/focus and controller manual checks.
+Economy temporarily uses the current plugin Normal behavior for any active cruise speed deficit (target increases and subsequent speed loss), including the same hooks/guard, and restores Economy at the target; High Power acceleration remains native. This is implemented in the test branch and awaits driving validation. The owner deferred pause/focus and controller manual checks.
 
 Kickdown investigation: distinguish the native adjacent-gear clamp after candidate selection; never assign gears at fixed road speeds. For High Power holding, separate stock downshift requests from the anti-hunt ceiling, which can itself delay higher gears. Stability is not confirmed fixed.
 

@@ -27,7 +27,7 @@ Close ATS, then copy `road_trip_shift.dll` into `path_to_game/bin/win_x64/plugin
 | Input | Transmission mode |
 | --- | --- |
 | Cruise holding speed | Selected in game settings |
-| Increased cruise target with Economy selected | Temporary Normal until target is reached |
+| Active cruise below target with Economy selected | Temporary Normal until target is reached |
 | Single accelerator press | Selected mode |
 | Double keyboard accelerator press, holding the second press | Temporary High Power |
 | Release the keyboard accelerator | Current selected mode restored |
@@ -36,7 +36,7 @@ Kickdown follows the keyboard accelerator assigned in ATS. It reads the active p
 
 Automatic binding discovery uses the latest profile path in the current `game.log.txt`, supports local/Steam profiles, redirected Documents and `-homedir`. Missing or unsupported bindings disable keyboard kickdown while cruise behavior stays available. See the installation guide for supported keys and the optional `controls_file` override.
 
-When an already engaged cruise target is increased with Economy selected, the plugin temporarily supplies Normal to the gearbox for that acceleration. It restores the current selection at the new target, target decrease, braking, manual acceleration, kickdown or cruise cancellation. It does not write the game setting; Normal and High Power selections retain their own behavior. Set `[cruise] normal_acceleration=0` to disable this exception. `CRUISE_ACCEL source=plugin` distinguishes it from a user change and from kickdown.
+With Economy selected, active cruise temporarily uses the current plugin Normal behavior whenever actual speed is below the cruise target, including both target increases and later speed loss. At or above the target it returns to Economy. Manual acceleration stays Economy; manual gas, kickdown, braking/ACC braking, invalid input, pause or cruise cancellation cancels the temporary Normal state. Releasing the override allows recovery to resume if active cruise still has a speed deficit. Lowering the target ends recovery only when the new target is satisfied. The saved setting is never written. Normal and High Power retain their existing plugin behavior, and the same cruise guard/chooser path remains active during recovery. `CRUISE_ACCEL source=plugin`, `mode_source=cruise_acceleration` and `cruise_acceleration_normal` expose the temporary state. Disable using `[cruise] normal_acceleration=0`.
 
 Cruise protection observes a failed higher gear under load and a subsequent stock downshift, then temporarily prevents another attempt at that higher gear. It preserves downshifts and resets on manual acceleration, kickdown or braking. It does not force top gear, guarantee an RPM or use a fixed road speed. Adaptive cruise still controls speed and braking around traffic.
 
