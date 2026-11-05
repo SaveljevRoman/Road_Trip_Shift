@@ -71,6 +71,7 @@ struct AcceleratorInput {
     }
 };
 inline float mode(float original, bool scoped, bool kick, float power,bool cruise_normal=false) {
+    // Same highest-priority High Power shadow as main, for every selected mode.
     if(scoped && kick)return power;
     return scoped && cruise_normal && economy_selected(original)?normal_mode:original;
 }

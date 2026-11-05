@@ -40,6 +40,8 @@ With Economy selected, active cruise temporarily uses the current plugin Normal 
 
 Cruise protection observes a failed higher gear under load and a subsequent stock downshift, then temporarily prevents another attempt at that higher gear. It preserves downshifts and resets on manual acceleration, kickdown or braking. It does not force top gear, guarantee an RPM or use a fixed road speed. Adaptive cruise still controls speed and braking around traffic.
 
+A confirmed double press of the assigned keyboard accelerator has the highest transmission-mode priority: temporary High Power overrides Off, Economy, Normal, already selected High Power, custom values, cruise holding/recovery and both cruise options. Entering kickdown immediately clears pending Normal recovery; recovery cannot re-enable Normal while kickdown is held. Changing the selected game mode during the hold does not interrupt High Power. Release resumes the current selection/recovery policy, without saving or overwriting the game setting. As in main, full-throttle acceleration comes from the game's Smart Throttle and native gearbox maps; the DLL does not synthesize throttle or assign a numbered gear. Input validity, supported-vehicle scope, plugin enable and cancellation checks still apply.
+
 ## Compatibility
 
 - Windows x64; tested on ATS **1.62.1.1**.

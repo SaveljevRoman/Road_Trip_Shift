@@ -83,3 +83,7 @@ The default **50 MiB** budget applies to the plugin's recognized `.log` and `.cs
 ## Removal
 
 Close ATS and delete only `bin/win_x64/plugins/road_trip_shift.dll`. The matching `road_trip_shift` directory can also be removed if you no longer need its settings, logs or backups. Never delete the whole `plugins` folder. Process-memory changes disappear when ATS exits.
+
+## Keyboard kickdown priority
+
+A confirmed double press of the assigned keyboard accelerator has the highest transmission-mode priority: temporary High Power overrides Off, Economy, Normal, already selected High Power, custom values, cruise holding/recovery and both cruise options. Entering kickdown immediately clears pending Normal recovery; recovery cannot re-enable Normal while kickdown is held. Changing the selected game mode during the hold does not interrupt High Power. Release resumes the current selection/recovery policy, without saving or overwriting the game setting. As in main, full-throttle acceleration comes from the game's Smart Throttle and native gearbox maps; the DLL does not synthesize throttle or assign a numbered gear. Input validity, supported-vehicle scope, plugin enable and cancellation checks still apply.

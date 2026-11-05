@@ -320,6 +320,41 @@ int wmain(int argc,wchar_t **argv) {
     auto memory_tick=memory_sample.tick;sample_memory(memory_tick+1);assert(memory_sample.tick==memory_tick);
     logging_enabled=false;sample_memory(memory_tick+memory_sample_ms+1,true);assert(memory_sample.tick==memory_tick);logging_enabled=true;
     std::puts("PASS: process memory/handles and separate thunk accounting, sample interval and disabled diagnostics.");
+    // Full input -> native reader/chooser matrix: priority must not depend on
+    // the user's adaptive mode or either cruise option, or diagnostic logging.
+    auto saved_normal_option=cruise_normal_enabled,saved_guard_option=cruise_guard_enabled;
+    auto saved_logging=logging_enabled;auto saved_chooser_priority=original_chooser;
+    auto saved_clamps_priority=cruise_clamps.load();
+    ULONGLONG priority_tick=40000;
+    for(float selected:{0.0f,roadtrip::economy_mode,roadtrip::normal_mode,roadtrip::high_power,7.5f})
+    for(bool normal_option:{false,true})for(bool guard_option:{false,true})for(bool diagnostics:{false,true}) {
+        logged_events[0]=0;logging_enabled=diagnostics;cruise_normal_enabled=normal_option;cruise_guard_enabled=guard_option;
+        setting=selected;base_mode=selected;scope=1;foreground=true;brake=effective_brake=0;
+        keyboard_binding.valid=true;kick=0;cancel_input();cruise=30;speed=20;original_chooser=fake_chooser;
+        input(priority_tick,0,0);update_cruise_acceleration();
+        input(priority_tick+10,0.02f,1);update_cruise_acceleration();assert(!kick && read_mode(&setting)==selected);
+        input(priority_tick+40,0,0);update_cruise_acceleration();input(priority_tick+60,0,0);
+        input(priority_tick+100,0.02f,1);
+        // Even before the regular cruise update, the lower-priority state is gone.
+        assert(kick && !cruise_normal && !cruise_acceleration.active && read_mode(&setting)==roadtrip::high_power);
+        set_cruise_normal(true,"priority_probe");assert(!cruise_normal && read_mode(&setting)==roadtrip::high_power);
+        update_cruise_acceleration();assert(kick && !cruise_normal);
+        cruise_cap=1;
+        for(int native_candidate:{-1,0,3,10})assert(choose_gear(&native_candidate)==native_candidate);
+        // Changing the game setting during the hold cannot end High Power.
+        setting=roadtrip::economy_selected(selected)?roadtrip::normal_mode:roadtrip::economy_mode;
+        refresh_config_mode();input(priority_tick+150,1,1);update_cruise_acceleration();
+        assert(kick && read_mode(&setting)==roadtrip::high_power);
+        float current_selection=setting;
+        input(priority_tick+200,0,0);update_cruise_acceleration();
+        float restored=normal_option && roadtrip::economy_selected(setting)?roadtrip::normal_mode:setting;
+        assert(!kick && setting==current_selection && read_mode(&setting)==restored);
+        cruise_cap=0;priority_tick+=1000;
+    }
+    logging_enabled=saved_logging;cruise_normal_enabled=saved_normal_option;cruise_guard_enabled=saved_guard_option;
+    original_chooser=saved_chooser_priority;cruise_clamps=saved_clamps_priority;
+    cruise=speed=0;cancel_input();kick=0;scope=0;
+    std::puts("PASS: double keyboard gas has immediate High Power priority across Off/Economy/Normal/High Power/custom, cruise options, logging and setting changes while held; native gear candidates pass unchanged.");
     reset_cruise_guard("test_complete");original_chooser=nullptr;
     std::puts("PASS: native chooser ceiling preserves stock downshifts, neutral, reverse and kickdown, without changing mode.");
 

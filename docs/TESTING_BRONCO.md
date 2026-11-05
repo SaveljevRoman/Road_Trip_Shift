@@ -30,6 +30,10 @@ The owner deferred case 4 (pause/focus) and the controller check in case 7; thes
 - With Bronco/Economy/ACC, follow traffic below the unchanged target. ACC braking must retain authority. Once traffic clears and braking ends, expect existing Normal recovery (`reason=speed_deficit`), then Economy at target.
 - During that recovery, double-tap the assigned keyboard accelerator and hold the second press. Expect plugin kickdown/High Power with the Economy setting unchanged. Release ends High Power; remaining cruise deficit resumes Normal, reaching the target restores Economy. Do not hold the manual brake at the same time.
 
+## Focused kickdown-priority check
+
+With Bronco automatic, repeat single/double keyboard gas in Off, Economy, Normal and High Power, first with cruise off and then during cruise recovery. Single gas keeps the selected manual mode; double/held gas must log plugin kickdown and expose High Power in every selected mode. While holding, change the selected game mode: effective High Power must persist until release. Release resumes the current selection or Normal recovery if Economy cruise remains below target. No particular gear or road speed is required. Manual pause/focus and controller cases remain deferred.
+
 ## Report
 
 For each case: **number — pass/fail — observation — approximate time**. For cruise include selected mode, actual/target speed, gear sequence and ACC state. PR merge and release need separate owner confirmation after driving checks.

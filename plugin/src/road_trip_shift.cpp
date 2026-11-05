@@ -150,6 +150,8 @@ static void reset_cruise_guard(const char *reason) {
     if(before)log("CRUISE_GUARD CLEAR source=cruise_load old_cap=%d reason=%s",before,reason);
 }
 static void set_cruise_normal(bool next,const char *reason) {
+    // A pending cruise update must never re-enable Normal during kickdown.
+    next=next && kick==0;
     bool previous=cruise_normal!=0;if(previous==next)return;
     float before=roadtrip::mode(base_mode,scope!=0,kick!=0,power_mode,previous);
     cruise_normal=next;
@@ -182,6 +184,10 @@ static void set_kickdown(bool next,const char *reason) {
     float after=roadtrip::mode(base_mode,scope!=0,next,power_mode,cruise_normal!=0);
     log("KICKDOWN %s source=plugin origin=%s reason=%s mode_config=%.5f effective_before=%.5f effective_after=%.5f value_changed=%d",
         next?"ON":"OFF",kick_origin,reason,base_mode,before,after,std::fabs(after-before)>0.0001f);
+    if(next) {
+        set_cruise_normal(false,"kickdown_priority");
+        cruise_acceleration.reset();
+    }
     if(!next)kick_origin="none";
 }
 static void init_paths() {
