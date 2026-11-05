@@ -25,6 +25,11 @@ The owner deferred case 4 (pause/focus) and the controller check in case 7; thes
 7. **Bypasses/controllers:** With a cruise ceiling active, press accelerator or brake; it should reset. If a controller/pedals are available, double-press only them without keyboard input; plugin kickdown must stay off. With High Power already selected, a keyboard double press still logs its separate request with `value_changed=0`.
 8. **Memory:** After loading settles, drive 10–15 minutes, preferably repeated laps, with several pauses/resumes. Expect a `MEMORY` sample about every 10 seconds and stable hook allocation/byte counters during inputs and pauses. A separate SDK initialization, if one occurs, has a new `INIT` and may retain a counted published code page. Whole-process memory/handles include map loading and caches; growth is not automatically a DLL leak. Exit normally for the final memory sample.
 
+## Additional ACC/cruise kickdown cases
+
+- With Bronco/Economy/ACC, follow traffic below the unchanged target. ACC braking must retain authority. Once traffic clears and braking ends, expect existing Normal recovery (`reason=speed_deficit`), then Economy at target.
+- During that recovery, double-tap the assigned keyboard accelerator and hold the second press. Expect plugin kickdown/High Power with the Economy setting unchanged. Release ends High Power; remaining cruise deficit resumes Normal, reaching the target restores Economy. Do not hold the manual brake at the same time.
+
 ## Report
 
 For each case: **number — pass/fail — observation — approximate time**. For cruise include selected mode, actual/target speed, gear sequence and ACC state. PR merge and release need separate owner confirmation after driving checks.

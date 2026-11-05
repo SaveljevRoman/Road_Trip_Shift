@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "channel": "experimental",
-  "built_at_utc": "2026-11-05T06:14:48Z",
+  "built_at_utc": "2026-11-05T06:23:26Z",
   "tested_game": "American Truck Simulator 1.62.1.1 Windows x64",
   "tested_exe_sha256": "28CA69A7ECA99519371ADCC3E78B978946AD28CE57332780E9FE4175BE92F6A7",
   "address_resolution": "instruction_signatures",
@@ -18,6 +18,7 @@
     "Native candidate and actual gear diagnostics",
     "Multi-frame physical release between taps",
     "Economy cruise speed recovery uses current Normal hooks and guard, then restores selection",
+    "ACC traffic recovery and keyboard kickdown priority on cruise",
     "Unpublished hook-page cleanup and tracked published retention",
     "Process memory and handle sampling",
     "Missing/ambiguous and relocated signature resolution",

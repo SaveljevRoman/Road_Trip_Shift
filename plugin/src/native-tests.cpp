@@ -268,6 +268,26 @@ int wmain(int argc,wchar_t **argv) {
     raw_keyboard_held=true;update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
     raw_keyboard_held=false;update_cruise_acceleration();assert(cruise_normal && read_mode(&setting)==3);
     speed=30;update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
+    // ACC traffic braking has priority. Once it releases the brake, recover
+    // the unchanged cruise target through the same Normal mode reader.
+    scs_value_t acc_brake{};acc_brake.type=SCS_VALUE_TYPE_float;acc_brake.value_float.value=0.4f;
+    channel("truck.effective.brake",SCS_U32_NIL,&acc_brake,(void*)(intptr_t)7);
+    speed=25;update_cruise_acceleration();assert(!cruise_normal && read_mode(&setting)==10);
+    speed=20;update_cruise_acceleration();assert(!cruise_normal && cruise==30);
+    acc_brake.value_float.value=0;channel("truck.effective.brake",SCS_U32_NIL,&acc_brake,(void*)(intptr_t)7);
+    update_cruise_acceleration();assert(cruise_normal && read_mode(&setting)==3);
+    // Real keyboard double tap during cruise recovery: first press is Economy,
+    // second/held press is High Power, release restores recovery if still needed.
+    cancel_input();input(26000,0,0);update_cruise_acceleration();assert(cruise_normal);
+    input(26010,0.02f,1);update_cruise_acceleration();assert(!kick && !cruise_normal && read_mode(&setting)==10);
+    input(26050,0,0);update_cruise_acceleration();assert(cruise_normal);
+    input(26070,0,0);input(26100,0.02f,1);update_cruise_acceleration();
+    assert(kick && !cruise_normal && setting==10 && read_mode(&setting)==roadtrip::high_power);
+    input(26200,0.3f,1);update_cruise_acceleration();assert(kick && read_mode(&setting)==roadtrip::high_power);
+    input(26220,0.2f,0);update_cruise_acceleration();assert(!kick && read_mode(&setting)==10);
+    input(26240,0,0);update_cruise_acceleration();assert(cruise_normal && read_mode(&setting)==3);
+    speed=30;update_cruise_acceleration();assert(!cruise_normal && setting==10 && read_mode(&setting)==10);
+    std::puts("PASS: ACC traffic braking yields to unchanged-target recovery; keyboard double tap on cruise has High Power priority and releases back to recovery/Economy.");
     setting=roadtrip::high_power;refresh_config_mode();cruise=35;update_cruise_acceleration();
     assert(!cruise_normal && read_mode(&setting)==roadtrip::high_power);
     setting=10;refresh_config_mode();cruise=40;update_cruise_acceleration();assert(cruise_normal);
