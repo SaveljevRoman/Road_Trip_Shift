@@ -29,6 +29,12 @@ Base: `main` at `93e3c34`. Selected changes were transferred from PR #1 (`d3c408
 - **`native_load_reversal` noise:** any throttle increase above the trial value counted as extra demand. It must now exceed that value by the guard's existing 0.05 noise floor, already used for pedal and brake. The recorded Bronco chain still learns its ceiling.
 - Checks: logic tests pass (macOS clang and MinGW build); the DLL, native and logging tests compile with MinGW GCC 16 and the project's `-Werror` flags. Native and logging tests were **not executed** (no Windows host), and the package and installed-game signature checks were not rebuilt. The trip log was unavailable, so it is not established that the `anti_hunt` changes explain the High Power episode.
 
+### Windows package validation — 2026-11-05
+
+- Built Claude's review changes at `a6998cc` on Windows through `plugin/build.ps1 -GameExe path_to_game/bin/win_x64/amtrucks.exe -Publish`, without changing implementation code.
+- Logic, native and log-retention tests passed, including growing-log profile discovery, diagnostic routing, native HUD execution and all 20 gearbox/HUD signature checks against the installed ATS image. DLL, ZIP, build manifest and SHA-256 sums in `release/` were refreshed.
+- Installed the same DLL locally with a backup of the previous one; the existing INI was verified unchanged. The version remains 0.3.1 experimental. These changes still need driving validation; no public GitHub release was created.
+
 ### Validation and known issues
 
 - DLL build, logic/native/log-retention tests, installed-game hook/HUD signature checks, package/checksums and public-file checks passed. Those checks do not establish correctness of every driving scenario. The remote CI workflow has not been run for this snapshot.
