@@ -2,6 +2,7 @@
 #include "keyboard_binding.h"
 #include "cruise_guard.h"
 #include <cassert>
+#include <cstdlib>
 #include <cstdio>
 #include <initializer_list>
 #include <fstream>
@@ -10,6 +11,9 @@
 #include <vector>
 #include <unordered_map>
 int main(int argc,char **argv) {
+#ifdef _WIN32
+    _set_error_mode(_OUT_TO_STDERR);
+#endif
     using namespace roadtrip;
     for(const char *id : {"ford.f150_23","ford.bronco_24","ford.victoria_06","ford.mustang_67"}) assert(ford(id));
     for(const char *id : {"vehicle.ford.f150_23","vehicle.ford.bronco_24","vehicle.ford.victoria_06","vehicle.ford.mustang_67"}) assert(ford(id));
@@ -80,6 +84,13 @@ int main(int argc,char **argv) {
     assert(!action.update(7420,0,false,true,600));
     assert(action.update(7450,0.000001f,true,true,600));
     assert(!action.update(7460,0,false,true,600));
+    action.cancel();assert(!key(8000,false));assert(!key(8010,true));
+    assert(!key(8030,false));assert(!key(8050,false));assert(!key(8070,false));
+    assert(key(8100,true));assert(key(8200,true));assert(!key(8210,false));
+    assert(!key(8230,false));assert(!key(8250,false));assert(!key(8270,true));
+    action.cancel();assert(!key(8300,false));assert(!action.update(8310,0,true,true,300));
+    assert(!key(8320,false));assert(!key(8340,false));assert(!key(8360,true));
+    std::puts("PASS: confirmed first tap survives multiple released frames; unconfirmed taps and post-kickdown releases cannot rearm.");
     std::puts("PASS: Smart Throttle ramp/confirmation, physical double-tap timing, unconfirmed tap rejection and confirmation timeout.");
     std::puts("PASS: keyboard-only accelerator, controller exclusion, key release, repeated cancellation, invalid input and timeout.");
     auto binding=parse_keyboard_binding("mix dforward `keyboard.uarrow?0 | keyboard.a?0 | joy2.b5?0`\n");
@@ -130,6 +141,10 @@ int main(int argc,char **argv) {
     assert(guard_choice(-1,guard.cap,true,false)==-1);
     assert(guard_choice(10,guard.cap,true,true)==10); // explicit kickdown is unaffected
     assert(guard_choice(10,guard.cap,false,false)==10);
+    assert(guard_choice(9,8,true,false,10)==9);
+    assert(guard_choice(10,8,true,false,10)==10);
+    assert(guard_choice(11,8,true,false,10)==10);
+    assert(guard_choice(10,8,true,false,6)==8);
     for(uint64_t t=1100;t<=11900;t+=200)step(t,9,31,0.4f);
     assert(guard.cap==0); // after minimum hold plus 3 seconds at target with lower load
     for(float target:{12.0f,25.0f,40.0f}) {
@@ -143,6 +158,17 @@ int main(int argc,char **argv) {
     guard.reset();step(100,10,31,1);s.brake=0.2f;step(300,9,29,0);assert(guard.cap==0);s.brake=0;
     guard.reset();step(100,10,31,1);s.kickdown=true;step(300,9,29,1);assert(guard.cap==0);s.kickdown=false;
     guard.reset();step(100,10,31,1);s.target=28;step(300,9,29,1);assert(guard.cap==0);
+    // Observed Bronco chain: the stock chooser asks for 10, steps through
+    // 7/8/9, then requests 6 below the target with increased cruise demand.
+    // Demand stays below the old fixed heavy-throttle gate.
+    s.target=46.94f;guard.reset();step(100,6,46.94f,0.26f);
+    step(200,7,46.94f,0.19f);step(400,8,46.84f,0.19f);step(600,9,46.67f,0.19f);
+    step(900,9,46.36f,0.62f);step(1000,6,46.36f,0.29f);
+    assert(guard.cap==8);assert(!std::strcmp(guard.reason,"native_load_reversal"));
+    assert(guard_choice(10,guard.cap,true,false)==8);assert(guard_choice(5,guard.cap,true,false)==5);
+    assert(guard_choice(10,guard.cap,true,true)==10);
+    // A new driver target or braking must discard this learning immediately.
+    s.target=50;step(1100,6,46.4f,0.7f);assert(guard.cap==0);
     std::puts("PASS: cruise failed-upshift hold, release hysteresis, speed independence, braking/manual/kickdown bypass.");
     std::puts("PASS: vehicle scope, single/double/held/released input, cancellation, timeout, mode restoration.");
     if(argc==2) {

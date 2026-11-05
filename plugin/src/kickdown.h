@@ -47,13 +47,14 @@ struct AcceleratorInput {
         // Smart Throttle ramps up over several frames. Count physical edges at
         // their actual times, then confirm each stroke with fresh SDK input.
         // A low first frame must not block the entire press until key release.
+        bool released=!keyboard_held && taps.down;
         if(keyboard_held && !taps.down) {press_time=now;confirmed=false;}
         down=keyboard_held;
         bool requested=taps.update(now,down,true,interval);
         if(taps.blocked){reason="release_required";return false;}
         if(!down) {
             // An unconfirmed tap cannot arm a later press (e.g. stale binding).
-            if(!confirmed)taps.cancel();
+            if(released && !confirmed)taps.cancel();
             confirmed=false;reason="released";return false;
         }
         if(value>0)confirmed=true;

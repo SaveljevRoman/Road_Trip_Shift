@@ -48,7 +48,7 @@ Changes affect process memory; the game EXE on disk is unchanged. Gear ratios, t
 
 ## Bounded diagnostics
 
-Event logs and CSV telemetry share a **50 MiB** default storage budget. Long sessions rotate into segments of at most 5 MiB; the oldest completed files are deleted when space is needed. Every CSV segment has its own header. The small `status.json` file is overwritten separately. Set `[logging] enabled=0` to disable diagnostic file/status writes and the plugin's SDK log messages; gearbox behavior stays enabled. See the installation guide for settings.
+Event logs and CSV telemetry share a **50 MiB** default storage budget. Long sessions rotate into segments of at most 5 MiB; the oldest completed files are deleted when space is needed. Every CSV segment has its own header. The small `status.json` file is overwritten separately. Set `[logging] enabled=0` to disable diagnostic file/status writes and the plugin's SDK log messages; gearbox behavior stays enabled. Memory diagnostics distinguish whole-process private memory/working set/handles from tracked plugin hook allocations. See the installation guide for settings. [Bronco driving test cases](docs/TESTING_BRONCO.md).
 
 ## Documentation and source layout
 

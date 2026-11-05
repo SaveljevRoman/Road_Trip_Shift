@@ -1,5 +1,6 @@
 #include "road_trip_shift.cpp"
 #include <cassert>
+#include <cstdlib>
 
 static char logged_events[16384]={};
 static void SCSAPIFUNC fake_log(scs_log_type_t,const char *message) {
@@ -13,6 +14,29 @@ static scs_result_t SCSAPIFUNC fake_channel(const char *name,scs_u32_t,scs_value
 }
 static float fake_reader(void *p) {return *(float*)p;}
 static int fake_chooser(void *p) {return *(int*)p;}
+
+static void test_thunk_lifetime() {
+    roadtrip::ThunkMemory memory;
+    for(unsigned i=0;i<64;++i) {
+        assert(memory.reserve_near((uintptr_t)&test_thunk_lifetime));
+        auto address=memory.data;
+        {
+            roadtrip::PreparedThunks preparation(memory);
+            assert(memory.take(memory.capacity));assert(!memory.take(1));
+            // Simulate every pre-publication return path through the same owner.
+        }
+        assert(!memory.data && memory.committed_bytes()==0);
+        MEMORY_BASIC_INFORMATION info{};assert(VirtualQuery(address,&info,sizeof info));assert(info.State==MEM_FREE);
+    }
+    assert(memory.allocations==64 && memory.frees==64 && !memory.retained_blocks && !memory.free_failures);
+    assert(memory.reserve_near((uintptr_t)&test_thunk_lifetime));
+    auto published=memory.data;size_t bytes=memory.capacity;memory.published=true;
+    assert(memory.reset());assert(!memory.data && memory.retained_blocks==1 && memory.retained_bytes==bytes);
+    assert(memory.committed_bytes()==bytes);
+    // Only this synthetic page is known never to have been called by any thread.
+    assert(VirtualFree(published,0,MEM_RELEASE));
+    std::puts("PASS: 64 unpublished preparation failures free their pages, bounds reject overflow, published pages stay tracked.");
+}
 
 
 static unsigned char *signature_fixture(uint32_t shift) {
@@ -67,6 +91,10 @@ static void test_signature_resolution() {
 }
 
 int wmain(int argc,wchar_t **argv) {
+#ifdef _WIN32
+    _set_error_mode(_OUT_TO_STDERR);
+#endif
+    test_thunk_lifetime();
     test_signature_resolution();
     assert(argc==1 || argc==2);
     if(argc==2) {
@@ -170,10 +198,12 @@ int wmain(int argc,wchar_t **argv) {
     input(20810,0,1);assert(!kick && !accelerator.taps.blocked);
     input(20830,0.03f,1);assert(!kick);
     input(20850,0.08f,0);assert(!kick);
+    input(20865,0.06f,0);assert(!kick);input(20880,0.04f,0);assert(!kick);
     input(20900,0,1);assert(!kick);
     input(20920,0.03f,1);assert(kick);
     input(20940,0.08f,1);assert(kick);
     input(20960,0.2f,0);assert(!kick);
+    assert(strstr(logged_events,"KICKDOWN ON source=plugin"));
     assert(strstr(logged_events,"INPUT_GATE reason=awaiting_sdk_throttle"));
     assert(strstr(logged_events,"confirmed=1"));
     pedal_sample=false;pedal=1;frame_start(0,nullptr,nullptr);assert(!pedal_sample);
@@ -204,6 +234,17 @@ int wmain(int argc,wchar_t **argv) {
     set_kickdown(false,"input_release");
     std::puts("PASS: configured High Power vs plugin kickdown have distinct event sources, including identical mode values.");
 
+    // One continuous SDK-input-to-native-reader regression: multiple released
+    // frames between taps must still override Economy without writing it.
+    logged_events[0]=0;setting=10;scope=1;foreground=true;brake=0;keyboard_binding.valid=true;
+    cancel_input();input(25000,0,0);input(25010,0.02f,1);input(25050,0.04f,0);
+    input(25070,0.02f,0);input(25090,0,0);input(25130,0.02f,1);
+    assert(kick && setting==10 && read_mode(&setting)==roadtrip::high_power);
+    input(25200,0.1f,1);assert(kick && read_mode(&setting)==roadtrip::high_power);
+    input(25220,0.2f,0);assert(!kick && setting==10 && read_mode(&setting)==10);
+    assert(strstr(logged_events,"effective_after=1.66670 value_changed=1"));
+    std::puts("PASS: multi-frame keyboard double tap overrides Economy in the native reader, holds and restores without changing the setting.");
+
     original_chooser=fake_chooser;int stock_choice=10;scope=1;kick=0;cruise_cap=9;
     assert(choose_gear(&stock_choice)==9);assert(cruise_clamps==1);
     stock_choice=7;assert(choose_gear(&stock_choice)==7);
@@ -222,10 +263,17 @@ int wmain(int argc,wchar_t **argv) {
     assert(strstr(logged_events,"GEAR_CHANGED source=game_telemetry"));
     logging_enabled=false;logged_events[0]=0;log_gear_decisions(24000);assert(!logged_events[0]);logging_enabled=true;
     std::puts("PASS: unchanged native chooser results, separate adjacent/direct path diagnostics and observed gear changes.");
+    logged_events[0]=0;sample_memory(30000,true);
+    assert(memory_sample.valid && memory_sample.private_bytes>0 && memory_sample.handles_valid);
+    assert(strstr(logged_events,"MEMORY source=process valid=1"));
+    assert(strstr(logged_events,"plugin_thunk_committed_bytes="));
+    auto memory_tick=memory_sample.tick;sample_memory(memory_tick+1);assert(memory_sample.tick==memory_tick);
+    logging_enabled=false;sample_memory(memory_tick+memory_sample_ms+1,true);assert(memory_sample.tick==memory_tick);logging_enabled=true;
+    std::puts("PASS: process memory/handles and separate thunk accounting, sample interval and disabled diagnostics.");
     reset_cruise_guard("test_complete");original_chooser=nullptr;
     std::puts("PASS: native chooser ceiling preserves stock downshifts, neutral, reverse and kickdown, without changing mode.");
 
-    thunks=(unsigned char*)VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_EXECUTE_READWRITE);assert(thunks);thunk_used=0;
+    thunks=(unsigned char*)VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_EXECUTE_READWRITE);assert(thunks);thunk_used=0;thunk_memory.capacity=4096;
     unsigned char actor[0x210]={};
     const unsigned char variants[3][7]={{0x80,0xB9,4,2,0,0,0},{0x80,0xB8,4,2,0,0,0},{0x44,0x38,0xB1,4,2,0,0}};
     using Probe=int(*)(void*);
@@ -244,7 +292,7 @@ int wmain(int argc,wchar_t **argv) {
         scope=1;assert(probe(actor)==1);
         scope=0;assert(probe(actor)==0);
     }
-    VirtualFree(thunks,0,MEM_RELEASE);thunks=nullptr;
+    VirtualFree(thunks,0,MEM_RELEASE);thunks=nullptr;thunk_memory.capacity=0;
     std::puts("PASS: executed RCX, RAX and R14B comparison stubs: stock vs Ford cruise condition.");
 
     auto sandbox=(unsigned char*)VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_EXECUTE_READWRITE);assert(sandbox);
