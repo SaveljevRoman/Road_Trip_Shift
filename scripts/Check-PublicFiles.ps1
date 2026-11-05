@@ -50,7 +50,7 @@ try {
         $stream=$entry.Open();$memory=[IO.MemoryStream]::new()
         try{$stream.CopyTo($memory);$entries[$name]=$memory.ToArray()}finally{$stream.Dispose();$memory.Dispose()}
     }
-    $expected=@('README.md','README_RU.md','docs/INSTALL.md','docs/INSTALL_RU.md','Install.ps1','BUILD-INFO.json',
+    $expected=@('README.md','README_RU.md','docs/INSTALL.md','docs/INSTALL_RU.md','docs/MODE_NOTICE.md','docs/MODE_NOTICE_RU.md','docs/IMPLEMENTATION_PLAN.md','Install.ps1','BUILD-INFO.json',
         'bin/win_x64/plugins/road_trip_shift.dll','bin/win_x64/plugins/road_trip_shift/road_trip_shift.ini')
     $expected+=@(Get-ChildItem -LiteralPath (Join-Path $root 'third_party/licenses') -File | ForEach-Object {'licenses/'+$_.Name})
     if(@(Compare-Object ($expected | Sort-Object) ($entries.Keys | Sort-Object)).Count){throw 'Unexpected/missing files in installation ZIP.'}

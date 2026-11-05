@@ -1,6 +1,6 @@
 # Third-party sources
 
-- `scs_sdk/include/`: official SCS Telemetry & Input SDK 1.16, downloaded from https://download.eurotrucksimulator2.com/scs_sdk_1_16.zip on 2026-11-04. License: `licenses/SCS-SDK.txt`.
+- `scs_sdk/include/`: official SCS Telemetry & Input SDK 1.16, downloaded from the [official SCS archive](https://download.eurotrucksimulator2.com/scs_sdk_1_16.zip) on 2026-11-04. [Official documentation/download page](https://modding.scssoft.com/wiki/Documentation/Engine/SDK/Telemetry). License: `licenses/SCS-SDK.txt`. The [SDK reference map](../docs/SDK_REFERENCES.md) identifies the bundled header documentation used by this project.
 - `licenses/Deppelover-MIT.txt`: car_automatic_transmission, inspected at commit `254a2f6aba56b7e41b879143daec7ff40f3bac4f`. Source: https://github.com/deppelover/car_automatic_transmission . Reference for call-site hooks; the upstream DLL is not included.
 - `licenses/DazDrive-MIT.txt`: DazDrive, inspected as an engineering reference. Source: https://github.com/DamienDutch/dazdrive . The upstream DLL and source checkout are not included.
 - `licenses/MinGW-w64-runtime.txt`: runtime notices supplied with the pinned w64devkit toolchain; retained for the statically linked runtime portions.

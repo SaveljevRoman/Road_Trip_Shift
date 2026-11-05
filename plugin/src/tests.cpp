@@ -1,6 +1,9 @@
 #include "kickdown.h"
+#include "keyboard_binding.h"
 #include "cruise_guard.h"
+#include "cruise_acceleration.h"
 #include <cassert>
+#include <cstdlib>
 #include <cstdio>
 #include <initializer_list>
 #include <fstream>
@@ -9,6 +12,9 @@
 #include <vector>
 #include <unordered_map>
 int main(int argc,char **argv) {
+#ifdef _WIN32
+    _set_error_mode(_OUT_TO_STDERR);
+#endif
     using namespace roadtrip;
     for(const char *id : {"ford.f150_23","ford.bronco_24","ford.victoria_06","ford.mustang_67"}) assert(ford(id));
     for(const char *id : {"vehicle.ford.f150_23","vehicle.ford.bronco_24","vehicle.ford.victoria_06","vehicle.ford.mustang_67"}) assert(ford(id));
@@ -36,12 +42,87 @@ int main(int argc,char **argv) {
     assert(!k.update(3000,true,true,300));
     assert(!k.update(3010,false,true,300));
     assert(!k.update(3301,true,true,300)); // outside double-tap window
+    auto binding=parse_keyboard_binding("mix dforward `keyboard.uarrow?0 | keyboard.a?0 | joy2.b5?0`\n");
+    assert(binding.valid && binding.scans==std::vector<unsigned>({0xe048,0x1e}));
+    assert(parse_keyboard_binding("mix dforward `keyboard.w?0`\r\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `joy.b1?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `unbound`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.a?0 & keyboard.lshift?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.a?0 |`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.unknown?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.numenter?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward `keyboard.w?0`\nmix dforward `keyboard.a?0`\n").valid);
+    assert(!parse_keyboard_binding("mix dforward missing_backticks\n").valid);
+    assert(!parse_keyboard_binding("mix photofwd `keyboard.w?0`\n").valid);
+    auto profile=last_profile_controls("/home/steam_profiles/AB12/ffb_lut.sii\n/home/profiles/34CD/controls.sii\n");
+    assert(profile.id=="34CD" && !profile.steam);
+    profile=last_profile_controls("/home/profiles/AB12/controls.sii\n/steam/profiles/34CD/quick_replies.sii\n");
+    assert(profile.id=="34CD" && profile.steam);
+    assert(last_profile_controls("/home/profiles/../../controls.sii").id.empty());
+    assert(last_profile_controls("/home/profiles(backup)/AB12/controls.sii").id.empty());
+    std::puts("PASS: remapped keyboard bindings, controller alternatives, unsupported/ambiguous bindings, profile selection and traversal refusal.");
     for(float m : {0.0f,10.0f,3.0f,high_power,7.5f}) {
         assert(mode(m,true,false,high_power)==m);
         assert(mode(m,true,true,high_power)==high_power);
         assert(mode(m,false,true,high_power)==m);
         assert(mode(m,true,false,high_power)==m); // restoration is immediate, with no saved stale setting
     }
+    for(float target:{15.0f,30.0f,45.0f}) {
+        CruiseAcceleration acceleration;
+        acceleration.update(true,true,false,target,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+5,target,0,0);assert(acceleration.active);
+        assert(mode(economy_mode,true,false,high_power,acceleration.active)==normal_mode);
+        acceleration.update(true,true,false,target+5,target+2,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+5,target+5,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+5,target+3,0,0);assert(acceleration.active); // recover a later speed deficit without any target change
+        acceleration.update(true,true,false,target+10,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+10,target+5,0.1f,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+15,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+15,target+5,0,0.1f);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+20,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,true,target+20,target+5,1,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+25,target+5,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+24,target+5,0,0);assert(acceleration.active); // reduced target is still above actual speed
+        acceleration.update(false,true,false,target+30,target+5,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+30,target+5,0,0);assert(acceleration.active); // recover after resume with fresh valid state
+        acceleration.update(true,false,false,target+35,target+5,0,0);assert(!acceleration.active);
+        acceleration.reset();
+        acceleration.update(true,true,false,target,target-1,0,0);assert(acceleration.active); // cruise already on below target
+        acceleration.update(true,true,false,target,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target,target+1,0,0);assert(!acceleration.active);
+        // Repeated crossings and small losses must not re-enter Normal.
+        for(int i=0;i<100;++i) {
+            acceleration.update(true,true,false,target,target-0.0001f,0,0);assert(!acceleration.active);
+            acceleration.update(true,true,false,target,target+0.0001f,0,0);assert(!acceleration.active);
+        }
+        const float boundary=target-CruiseAcceleration::recovery_gap_mps;
+        acceleration.update(true,true,false,target,boundary,0,0);assert(!acceleration.active);
+        assert(!std::strcmp(acceleration.reason,"within_recovery_band"));
+        acceleration.update(true,true,false,target,std::nextafter(boundary,-INFINITY),0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target,target-0.01f,0,0);assert(acceleration.active); // hold through the band
+        acceleration.update(true,true,false,target,target,0,0);assert(!acceleration.active);
+        // Target changes use the same band; braking/manual/kickdown still cancel immediately.
+        acceleration.update(true,true,false,target+0.2f,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+2,target,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+0.2f,target,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+0.2f,target,0,0.1f);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+0.2f,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+2,target,0,0);assert(acceleration.active);
+        acceleration.update(true,true,true,target+2,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+2,target,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target+2,target,0.1f,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+2,target,0,0);assert(acceleration.active);
+        acceleration.update(false,true,false,target+2,target,0,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target+2,target,0,0);assert(acceleration.active);
+        acceleration.update(true,true,false,target,target-1,0.2f,0);assert(!acceleration.active);
+        acceleration.update(true,true,false,target,target-1,0,0.2f);assert(!acceleration.active);
+        acceleration.update(true,true,false,target-2,target-1,0,0);assert(!acceleration.active); // lower target is now satisfied
+        assert(mode(normal_mode,true,false,high_power,true)==normal_mode);
+        assert(mode(high_power,true,false,high_power,true)==high_power);
+        assert(mode(economy_mode,true,true,high_power,true)==high_power);
+        assert(mode(economy_mode,false,false,high_power,true)==economy_mode);
+    }
+    std::puts("PASS: Economy recovery enters beyond 3 km/h deficit, holds through the band, restores at target; boundary chatter, ACC/manual/kickdown cancellation and target changes.");
     // A user-selected High Power setting is not evidence of plugin kickdown.
     assert(!std::strcmp(mode_source(true,false),"configured"));
     assert(!mode_override(high_power,true,false,high_power));
@@ -65,6 +146,10 @@ int main(int argc,char **argv) {
     assert(guard_choice(-1,guard.cap,true,false)==-1);
     assert(guard_choice(10,guard.cap,true,true)==10); // explicit kickdown is unaffected
     assert(guard_choice(10,guard.cap,false,false)==10);
+    assert(guard_choice(9,8,true,false,10)==9);
+    assert(guard_choice(10,8,true,false,10)==10);
+    assert(guard_choice(11,8,true,false,10)==10);
+    assert(guard_choice(10,8,true,false,6)==8);
     for(uint64_t t=1100;t<=11900;t+=200)step(t,9,31,0.4f);
     assert(guard.cap==0); // after minimum hold plus 3 seconds at target with lower load
     for(float target:{12.0f,25.0f,40.0f}) {
@@ -78,6 +163,17 @@ int main(int argc,char **argv) {
     guard.reset();step(100,10,31,1);s.brake=0.2f;step(300,9,29,0);assert(guard.cap==0);s.brake=0;
     guard.reset();step(100,10,31,1);s.kickdown=true;step(300,9,29,1);assert(guard.cap==0);s.kickdown=false;
     guard.reset();step(100,10,31,1);s.target=28;step(300,9,29,1);assert(guard.cap==0);
+    // Observed Bronco chain: the stock chooser asks for 10, steps through
+    // 7/8/9, then requests 6 below the target with increased cruise demand.
+    // Demand stays below the old fixed heavy-throttle gate.
+    s.target=46.94f;guard.reset();step(100,6,46.94f,0.26f);
+    step(200,7,46.94f,0.19f);step(400,8,46.84f,0.19f);step(600,9,46.67f,0.19f);
+    step(900,9,46.36f,0.62f);step(1000,6,46.36f,0.29f);
+    assert(guard.cap==8);assert(!std::strcmp(guard.reason,"native_load_reversal"));
+    assert(guard_choice(10,guard.cap,true,false)==8);assert(guard_choice(5,guard.cap,true,false)==5);
+    assert(guard_choice(10,guard.cap,true,true)==10);
+    // A new driver target or braking must discard this learning immediately.
+    s.target=50;step(1100,6,46.4f,0.7f);assert(guard.cap==0);
     std::puts("PASS: cruise failed-upshift hold, release hysteresis, speed independence, braking/manual/kickdown bypass.");
     std::puts("PASS: vehicle scope, single/double/held/released input, cancellation, timeout, mode restoration.");
     if(argc==2) {

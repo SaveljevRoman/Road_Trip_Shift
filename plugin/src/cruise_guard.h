@@ -18,14 +18,14 @@ struct CruiseSample {
 struct CruiseGuard {
     int cap=0,trial_gear=0,last_gear=0;
     uint64_t last_time=0,trial_time=0,heavy_time=0,cap_time=0,relaxed_time=0;
-    float trial_speed=0,last_target=0;
+    float trial_speed=0,last_target=0,trial_throttle=0,peak_throttle=0;
     bool initialized=false,heavy_seen=false,relaxing=false;
     const char *reason="inactive";
 
     void reset(const char *why="reset") {
         cap=trial_gear=last_gear=0;
         last_time=trial_time=heavy_time=cap_time=relaxed_time=0;
-        trial_speed=last_target=0;
+        trial_speed=last_target=trial_throttle=peak_throttle=0;
         initialized=heavy_seen=relaxing=false;
         reason=why;
     }
@@ -42,19 +42,28 @@ struct CruiseGuard {
             initialized=true;last_target=s.target;last_gear=s.gear;
             // An already engaged gear can also prove unsuitable after cruise resumes.
             trial_gear=s.gear;trial_time=now;trial_speed=s.speed;
+            trial_throttle=peak_throttle=s.throttle;
         }
         last_time=now;last_target=s.target;
         if(s.throttle>=0.75f){heavy_time=now;heavy_seen=true;}
+        if(trial_gear)peak_throttle=std::max(peak_throttle,s.throttle);
         if(s.gear>0) {
             if(last_gear>0 && s.gear>last_gear) {
-                trial_gear=s.gear;trial_time=now;trial_speed=s.speed;
+                // Preserve evidence over a chain of upshifts: overwriting the
+                // entry speed at each step hid the loss that led to a reversal.
+                if(!trial_gear) {trial_speed=s.speed;trial_throttle=peak_throttle=s.throttle;}
+                else trial_speed=std::max(trial_speed,s.speed);
+                trial_gear=s.gear;trial_time=now;
             } else if(trial_gear>1 && s.gear<trial_gear) {
-                bool failed=now-trial_time<=12000 && trial_speed-s.speed>=0.6f &&
-                    heavy_seen && now-heavy_time<=1200;
+                bool heavy_failure=trial_speed-s.speed>=0.6f && heavy_seen && now-heavy_time<=1200;
+                // The game's own downshift confirms demand. No fixed speed,
+                // RPM or gas percentage is needed for this additional evidence.
+                bool native_reversal=s.speed<trial_speed && s.speed<s.target && peak_throttle>trial_throttle;
+                bool failed=now-trial_time<=12000 && (heavy_failure || native_reversal);
                 if(failed) {
                     int learned=trial_gear-1;
                     cap=cap?std::min(cap,learned):learned;
-                    cap_time=now;relaxing=false;reason="failed_upshift";
+                    cap_time=now;relaxing=false;reason=native_reversal?"native_load_reversal":"failed_upshift";
                 }
                 trial_gear=0;
             }
@@ -72,7 +81,10 @@ struct CruiseGuard {
         }
     }
 };
-inline int guard_choice(int stock,int cap,bool scoped,bool kickdown) {
-    return scoped && !kickdown && cap>0 && stock>cap ? cap : stock;
+inline int guard_choice(int stock,int cap,bool scoped,bool kickdown,int current=0) {
+    if(!scoped || kickdown || cap<=0 || stock<=cap)return stock;
+    // Never create a downshift or deepen a stock downshift to enforce a ceiling.
+    if(current>0) {if(stock<=current)return stock;return std::max(current,cap);}
+    return cap;
 }
 }
